@@ -22,6 +22,15 @@ export interface Brick {
   maxHp: number;
 }
 
+/** 怪物的 pos 是圓心。 */
+export interface Monster {
+  id: number;
+  pos: Vec2;
+  radius: number;
+  hp: number;
+  maxHp: number;
+}
+
 export interface PlayerState {
   side: Side;
   /** 擋板中心沿著自己那一邊的座標：上下兩邊是 x，左右兩邊是 y。 */
@@ -43,6 +52,7 @@ export interface GameState {
   pool: number;
   marbles: Marble[];
   bricks: Brick[];
+  monsters: Monster[];
   players: PlayerState[];
 }
 
@@ -57,4 +67,6 @@ export interface GameOptions {
   seed: number;
   /** 取代預設的關卡生成，主要讓測試能放置已知位置的磚塊。 */
   layout?: (level: number) => Brick[];
+  /** 取代預設的怪物生成，讓測試能放置已知位置與血量的怪物。 */
+  monsters?: (level: number) => Monster[];
 }

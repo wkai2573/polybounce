@@ -1,6 +1,15 @@
-import { BRICK_COLS, BRICK_H, BRICK_REGION, BRICK_W } from './config.ts';
+import {
+  BRICK_COLS,
+  BRICK_H,
+  BRICK_REGION,
+  BRICK_W,
+  MONSTER_BASE_HP,
+  MONSTER_FIRST_LEVEL,
+  MONSTER_HP_PER_LEVEL,
+  MONSTER_RADIUS,
+} from './config.ts';
 import { createRng } from './rng.ts';
-import type { Brick } from './types.ts';
+import type { Brick, Monster } from './types.ts';
 
 const FILL_CHANCE = 0.85;
 
@@ -28,4 +37,22 @@ export function generateLevel(level: number, seed: number): Brick[] {
     }
   }
   return bricks;
+}
+
+/** 第 3 關起每關一隻怪物，從中央區域內的隨機位置出發；血量只看關卡。 */
+export function generateMonsters(level: number, seed: number): Monster[] {
+  if (level < MONSTER_FIRST_LEVEL) return [];
+  const rng = createRng(seed * 7919 + level);
+  const lo = BRICK_REGION.min + MONSTER_RADIUS;
+  const hi = BRICK_REGION.max - MONSTER_RADIUS;
+  const hp = MONSTER_BASE_HP + MONSTER_HP_PER_LEVEL * (level - MONSTER_FIRST_LEVEL);
+  return [
+    {
+      id: 0,
+      pos: { x: lo + rng() * (hi - lo), y: lo + rng() * (hi - lo) },
+      radius: MONSTER_RADIUS,
+      hp,
+      maxHp: hp,
+    },
+  ];
 }

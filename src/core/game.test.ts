@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { PADDLE_WIDTH } from './config.ts';
 import { createGame } from './game.ts';
-import type { Brick, Game, GameOptions, PlayerInput } from './types.ts';
+import type { Brick, Game, GameOptions, Monster, PlayerInput } from './types.ts';
 
 const at = (x: number, y = 0): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
 
@@ -371,5 +371,129 @@ describe('審查發現的邊界情況', () => {
     const v = game.state.marbles[0]!.vel;
     expect(v.x).toBeLessThan(0);
     expect(Math.hypot(v.x, v.y)).toBeCloseTo(420);
+  });
+});
+
+const monsterAt = (x: number, y: number, hp = 3): Monster => ({
+  id: 0,
+  pos: { x, y },
+  radius: 36,
+  hp,
+  maxHp: hp,
+});
+
+describe('怪物', () => {
+  /** 怪物在彈珠垂直射出的路徑上，離擋板近，所以緩慢遊走的偏移不會讓彈珠落空。 */
+  const inPath = (hp: number) => (level: number) => (level === 1 ? [monsterAt(400, 560, hp)] : []);
+  const newMonsterGame = (monsters: GameOptions['monsters'], layout: GameOptions['layout'] = cornerLayout) =>
+    createGame({ playerCount: 1, seed: 1, layout, monsters });
+
+  test('預設第 1、2 關沒有怪物，第 3 關出現', () => {
+    const game = createGame({ playerCount: 1, seed: 1, layout: (level) => (level < 3 ? [brickAt(376, 300)] : cornerLayout()) });
+    expect(game.state.monsters).toHaveLength(0);
+
+    while (game.state.level < 3) {
+      game.step(1 / 60, [rightClick(400)]);
+      const before = game.state.level;
+      runUntil(game, () => game.state.level > before, at(400));
+      if (game.state.level === 2) expect(game.state.monsters).toHaveLength(0);
+    }
+
+    expect(game.state.monsters).toHaveLength(1);
+  });
+
+  test('怪物血量不隨玩家人數改變', () => {
+    const hpAtLevel3 = (playerCount: GameOptions['playerCount']) => {
+      const game = createGame({
+        playerCount,
+        seed: 1,
+        layout: (level) => (level < 3 ? [brickAt(376, 300)] : cornerLayout()),
+      });
+      const idle = Array.from({ length: playerCount }, () => at(400));
+      while (game.state.level < 3) {
+        game.step(1 / 60, [rightClick(400), ...idle.slice(1)]);
+        const before = game.state.level;
+        for (let t = 0; t < 10 && game.state.level === before; t += 1 / 60) game.step(1 / 60, idle);
+      }
+      return game.state.monsters[0]!.maxHp;
+    };
+
+    expect(hpAtLevel3(4)).toBe(hpAtLevel3(1));
+  });
+
+  test('彈珠撞到怪物會反彈並使怪物扣一點血', () => {
+    const game = newMonsterGame(inPath(3));
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters[0]!.hp < 3, at(400));
+
+    expect(game.state.monsters[0]!.hp).toBe(2);
+    expect(game.state.marbles[0]!.vel.y).toBeGreaterThan(0);
+    expect(game.state.score).toBe(0);
+  });
+
+  test('血量歸零時怪物被移除並得分', () => {
+    const game = newMonsterGame(inPath(1));
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters.length === 0, at(400));
+
+    expect(game.state.monsters).toHaveLength(0);
+    expect(game.state.score).toBe(20);
+  });
+
+  test('怪物在中央區域內遊走，不會飄出去', () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      const game = createGame({ playerCount: 1, seed, layout: cornerLayout, monsters: () => [monsterAt(196, 196)] });
+      const m = game.state.monsters[0]!;
+      let moved = false;
+      for (let t = 0; t < 60; t += 1 / 60) {
+        game.step(1 / 60, [at(400)]);
+        moved ||= m.pos.x !== 196 || m.pos.y !== 196;
+        expect(m.pos.x).toBeGreaterThanOrEqual(160 + 36);
+        expect(m.pos.x).toBeLessThanOrEqual(640 - 36);
+        expect(m.pos.y).toBeGreaterThanOrEqual(160 + 36);
+        expect(m.pos.y).toBeLessThanOrEqual(640 - 36);
+      }
+      expect(moved).toBe(true);
+    }
+  });
+
+  test('只清完磚塊不算過關，怪物也清完才進入下一關', () => {
+    // 先打倒路徑上的怪物，再打掉怪物上方的磚塊。
+    const game = newMonsterGame(inPath(1), (level) => (level === 1 ? [brickAt(376, 300)] : cornerLayout()));
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters.length === 0, at(400));
+    expect(game.state.level).toBe(1);
+    expect(game.state.bricks).toHaveLength(1);
+
+    game.step(1 / 60, [rightClick(400)]);
+    runUntil(game, () => game.state.level === 2, at(400));
+    expect(game.state.level).toBe(2);
+  });
+
+  test('只清完怪物不算過關', () => {
+    const game = newMonsterGame(inPath(1));
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters.length === 0, at(400));
+    run(game, 0.5, at(400));
+
+    expect(game.state.level).toBe(1);
+  });
+
+  test('只清完磚塊不算過關', () => {
+    const game = newMonsterGame(
+      (level) => (level === 1 ? [monsterAt(580, 580, 5)] : []),
+      (level) => (level === 1 ? [brickAt(376, 300)] : cornerLayout()),
+    );
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.bricks.length === 0, at(400));
+    run(game, 0.5, at(400));
+
+    expect(game.state.monsters).toHaveLength(1);
+    expect(game.state.level).toBe(1);
   });
 });

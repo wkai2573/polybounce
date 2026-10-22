@@ -16,6 +16,8 @@ const SIDE_COLORS: Record<Side, string> = {
   right: '#ffd24f',
 };
 
+const MONSTER_COLOR = '#c26bff';
+
 const BRICK_COLORS = ['#ff5c7a', '#ffa14f', '#ffe14f', '#7dffb0'];
 
 function glow(ctx: CanvasRenderingContext2D, color: string, blur = 14) {
@@ -57,6 +59,38 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     const color = BRICK_COLORS[Math.min(brick.hp, BRICK_COLORS.length) - 1] ?? BRICK_COLORS[0]!;
     glow(ctx, color, 8);
     ctx.fillRect(brick.x + 1, brick.y + 1, brick.w - 2, brick.h - 2);
+    ctx.restore();
+  }
+
+  for (const monster of state.monsters) {
+    const { x, y } = monster.pos;
+    ctx.save();
+    glow(ctx, MONSTER_COLOR, 18);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, monster.radius, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.25;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(monster.hp), x, y);
+    ctx.restore();
+
+    // 血量條
+    const barW = monster.radius * 2;
+    const barY = y - monster.radius - 12;
+    ctx.save();
+    ctx.fillStyle = '#2a1636';
+    ctx.fillRect(x - monster.radius, barY, barW, 5);
+    glow(ctx, MONSTER_COLOR, 6);
+    ctx.fillRect(x - monster.radius, barY, barW * (monster.hp / monster.maxHp), 5);
     ctx.restore();
   }
 

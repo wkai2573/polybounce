@@ -28,3 +28,14 @@ export const AIM_MIN_ANGLE_DEG = 15;
 
 /** 擊碎一塊磚得到的分數，乘以該磚的最大血量。 */
 export const SCORE_PER_HP = 10;
+
+/** 第一次出現怪物的關卡。 */
+export const MONSTER_FIRST_LEVEL = 3;
+export const MONSTER_RADIUS = 36;
+/** 怪物遊走的速度（每秒像素）。怪物只在 BRICK_REGION 這個中央區域內活動。 */
+export const MONSTER_SPEED = 40;
+/** 怪物血量只隨關卡增加，不隨玩家人數改變。 */
+export const MONSTER_BASE_HP = 5;
+export const MONSTER_HP_PER_LEVEL = 2;
+/** 打倒怪物得到的分數，乘以該怪物的最大血量。 */
+export const MONSTER_SCORE_PER_HP = 20;

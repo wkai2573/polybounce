@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { BRICK_REGION } from './config.ts';
-import { generateLevel } from './level.ts';
+import { generateLevel, generateMonsters } from './level.ts';
 
 describe('關卡生成', () => {
   test('第 1 關至少有一個磚塊，且全部落在中央區域內', () => {
@@ -55,5 +55,34 @@ describe('關卡生成', () => {
     };
 
     expect(total(8)).toBeGreaterThan(total(1));
+  });
+});
+
+describe('怪物生成', () => {
+  test('第 1、2 關沒有怪物，第 3 關起每關一隻', () => {
+    expect(generateMonsters(1, 42)).toHaveLength(0);
+    expect(generateMonsters(2, 42)).toHaveLength(0);
+    for (const level of [3, 4, 7, 12]) {
+      expect(generateMonsters(level, 42)).toHaveLength(1);
+    }
+  });
+
+  test('怪物整隻落在中央區域內，血量是滿的', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const m = generateMonsters(3, seed)[0]!;
+      expect(m.pos.x - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+      expect(m.pos.y - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+      expect(m.pos.x + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+      expect(m.pos.y + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+      expect(m.hp).toBe(m.maxHp);
+    }
+  });
+
+  test('關卡越後面怪物血量越多', () => {
+    expect(generateMonsters(6, 1)[0]!.maxHp).toBeGreaterThan(generateMonsters(3, 1)[0]!.maxHp);
+  });
+
+  test('相同種子與關卡產生相同的怪物', () => {
+    expect(generateMonsters(5, 7)).toEqual(generateMonsters(5, 7));
   });
 });
