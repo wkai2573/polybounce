@@ -4,7 +4,7 @@
 
 **Blocked by（被誰阻擋）：** 無（可立即開始）
 
-**Status：** ready-for-agent
+**Status：** done
 
 - [x] 現有的遊戲核心與關卡生成測試不修改，全部維持通過
 - [x] 型別檢查與建置維持通過
