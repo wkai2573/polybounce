@@ -497,3 +497,159 @@ describe('怪物', () => {
     expect(game.state.level).toBe(1);
   });
 });
+
+describe('子彈', () => {
+  const lone = () => createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [monsterAt(400, 500)] });
+  const pair = (seed: number) =>
+    createGame({ playerCount: 2, seed, layout: cornerLayout, monsters: () => [monsterAt(400, 400)] });
+
+  test('怪物存在時每 5 秒發射一發子彈', () => {
+    const game = lone();
+
+    run(game, 4.9, at(400));
+    expect(game.state.bullets).toHaveLength(0);
+
+    run(game, 0.2, at(400));
+    expect(game.state.bullets).toHaveLength(1);
+    const first = game.state.bullets[0]!.id;
+
+    run(game, 5, at(400));
+    expect(game.state.bullets).toHaveLength(1);
+    expect(game.state.bullets[0]!.id).not.toBe(first);
+  });
+
+  test('沒有怪物就不發射子彈', () => {
+    const game = createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [] });
+
+    run(game, 12, at(400));
+
+    expect(game.state.bullets).toHaveLength(0);
+  });
+
+  test('單人時子彈以固定速度朝下方的玩家飛去', () => {
+    const game = lone();
+
+    run(game, 5.1, at(400));
+
+    const v = game.state.bullets[0]!.vel;
+    expect(Math.hypot(v.x, v.y)).toBeCloseTo(200);
+    expect(v.y).toBeGreaterThan(0);
+  });
+
+  test('兩人時子彈只會射向上方或下方的玩家，兩邊都有機會', () => {
+    const directions = new Set<string>();
+    for (let seed = 1; seed <= 20; seed++) {
+      const game = pair(seed);
+      run(game, 5.1, at(400), at(400));
+      const v = game.state.bullets[0]!.vel;
+      expect(Math.abs(v.y)).toBeGreaterThan(Math.abs(v.x));
+      directions.add(v.y > 0 ? 'bottom' : 'top');
+    }
+
+    expect([...directions].sort()).toEqual(['bottom', 'top']);
+  });
+
+  test('子彈打到磚塊就消失，磚塊不受損，也不會凍結玩家', () => {
+    const wall = Array.from({ length: 10 }, (_, c) => ({ ...brickAt(160 + c * 48, 640), id: c }));
+    const game = createGame({ playerCount: 1, seed: 1, layout: () => wall, monsters: () => [monsterAt(400, 400)] });
+
+    for (let t = 0; t < 8.5; t += 1 / 60) {
+      game.step(1 / 60, [at(400)]);
+      expect(game.state.players[0]!.frozen).toBe(0);
+    }
+
+    expect(game.state.bullets).toHaveLength(0);
+    expect(game.state.bricks).toHaveLength(10);
+    expect(game.state.bricks.every((b) => b.hp === 1)).toBe(true);
+  });
+
+  test('子彈沒碰到擋板就飛出場地消失，不會凍結玩家', () => {
+    const game = lone();
+    run(game, 5.1, at(400));
+    expect(game.state.bullets).toHaveLength(1);
+
+    for (let t = 0; t < 4; t += 1 / 60) {
+      game.step(1 / 60, [at(700)]);
+      expect(game.state.players[0]!.frozen).toBe(0);
+    }
+
+    expect(game.state.bullets).toHaveLength(0);
+  });
+});
+
+describe('凍結', () => {
+  const newLone = () =>
+    createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [monsterAt(400, 500)] });
+  const frozenOf = (game: Game, i = 0) => game.state.players[i]!.frozen;
+
+  function hitOnce() {
+    const game = newLone();
+    runUntil(game, () => frozenOf(game) > 0, at(400));
+    return game;
+  }
+
+  test('子彈打到擋板，該玩家凍結 1 秒，子彈消失', () => {
+    const game = hitOnce();
+
+    expect(frozenOf(game)).toBe(1);
+    expect(game.state.bullets).toHaveLength(0);
+  });
+
+  test('凍結期間擋板不能移動，1 秒後恢復', () => {
+    const game = hitOnce();
+
+    run(game, 0.9, at(700));
+    expect(game.state.players[0]!.paddle).toBe(400);
+
+    run(game, 0.2, at(700));
+    expect(game.state.players[0]!.paddle).toBe(700);
+    expect(frozenOf(game)).toBe(0);
+  });
+
+  test('凍結期間仍然可以進入瞄準模式', () => {
+    const game = hitOnce();
+
+    game.step(1 / 60, [leftClick(400, 400)]);
+
+    expect(game.state.players[0]!.aiming).toBe(true);
+  });
+
+  test('凍結期間仍然可以發射彈珠', () => {
+    const game = hitOnce();
+
+    game.step(1 / 60, [rightClick(400)]);
+
+    expect(game.state.pool).toBe(9);
+    expect(game.state.marbles).toHaveLength(1);
+  });
+
+  test('凍結期間再被擊中，凍結時間重新計為 1 秒，不延長', () => {
+    // 兩隻怪物同時發射，下方那隻的子彈先到，另一發約 0.35 秒後才到。
+    const game = createGame({
+      playerCount: 1,
+      seed: 1,
+      layout: cornerLayout,
+      monsters: () => [monsterAt(400, 560), { ...monsterAt(400, 490), id: 1 }],
+    });
+    run(game, 4.9, at(400));
+    game.state.monsters[0]!.pos = { x: 400, y: 560 };
+    game.state.monsters[1]!.pos = { x: 400, y: 490 };
+    runUntil(game, () => frozenOf(game) > 0, at(400));
+
+    run(game, 0.5, at(400));
+
+    // 沒有重新計時會剩 0.5，延長則會超過 1。
+    expect(frozenOf(game)).toBeGreaterThan(0.7);
+    expect(frozenOf(game)).toBeLessThan(0.95);
+  });
+
+  test('凍結不影響其他玩家', () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      const game = createGame({ playerCount: 2, seed, layout: cornerLayout, monsters: () => [monsterAt(400, 400)] });
+
+      runUntil(game, () => game.state.players.some((p) => p.frozen > 0), at(400));
+
+      expect(game.state.players.filter((p) => p.frozen > 0)).toHaveLength(1);
+    }
+  });
+});

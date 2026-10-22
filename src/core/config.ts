@@ -39,3 +39,10 @@ export const MONSTER_BASE_HP = 5;
 export const MONSTER_HP_PER_LEVEL = 2;
 /** 打倒怪物得到的分數，乘以該怪物的最大血量。 */
 export const MONSTER_SCORE_PER_HP = 20;
+
+/** 怪物每隔這麼多秒向一位玩家發射一發子彈。 */
+export const MONSTER_FIRE_INTERVAL = 5;
+export const BULLET_SPEED = 200;
+export const BULLET_RADIUS = 5;
+/** 擋板被子彈打到後的凍結秒數，凍結期間再被打到會重新計時。 */
+export const FREEZE_DURATION = 1;

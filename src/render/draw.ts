@@ -1,6 +1,8 @@
 import {
   AIM_MIN_ANGLE_DEG,
   ARENA_SIZE,
+  BULLET_RADIUS,
+  FREEZE_DURATION,
   MARBLE_RADIUS,
   PADDLE_THICKNESS,
   PADDLE_WIDTH,
@@ -17,6 +19,8 @@ const SIDE_COLORS: Record<Side, string> = {
 };
 
 const MONSTER_COLOR = '#c26bff';
+const BULLET_COLOR = '#ff4f4f';
+const FROZEN_COLOR = '#bfe9ff';
 
 const BRICK_COLORS = ['#ff5c7a', '#ffa14f', '#ffe14f', '#7dffb0'];
 
@@ -96,9 +100,17 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
 
   for (const p of state.players) {
     ctx.save();
-    glow(ctx, SIDE_COLORS[p.side], 16);
+    const frozen = p.frozen > 0;
+    glow(ctx, frozen ? FROZEN_COLOR : SIDE_COLORS[p.side], 16);
     const r = paddleRect(p);
     ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (frozen) {
+      // 擋板內側的細條會隨凍結剩餘時間縮短，讓玩家看得出還要凍多久。
+      const half = PADDLE_WIDTH / 2;
+      const a = pointAt(p.side, p.paddle - half, PADDLE_THICKNESS + 8);
+      const b = pointAt(p.side, p.paddle - half + PADDLE_WIDTH * (p.frozen / FREEZE_DURATION), PADDLE_THICKNESS + 11);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+    }
     ctx.restore();
 
     if (p.aiming) {
@@ -115,6 +127,15 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
       ctx.restore();
     }
   }
+
+  ctx.save();
+  glow(ctx, BULLET_COLOR, 12);
+  for (const b of state.bullets) {
+    ctx.beginPath();
+    ctx.arc(b.pos.x, b.pos.y, BULLET_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 
   ctx.save();
   glow(ctx, '#ffffff', 16);

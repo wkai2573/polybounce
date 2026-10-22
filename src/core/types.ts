@@ -31,11 +31,20 @@ export interface Monster {
   maxHp: number;
 }
 
+/** 怪物發射的子彈，pos 是圓心。不會與彈珠互相碰撞。 */
+export interface Bullet {
+  id: number;
+  pos: Vec2;
+  vel: Vec2;
+}
+
 export interface PlayerState {
   side: Side;
   /** 擋板中心沿著自己那一邊的座標：上下兩邊是 x，左右兩邊是 y。 */
   paddle: number;
   aiming: boolean;
+  /** 凍結剩餘秒數，0 代表沒有凍結。凍結只鎖擋板移動。 */
+  frozen: number;
 }
 
 /** primary 與 secondary 是這一幀才按下的邊緣訊號，不是持續按住。 */
@@ -53,6 +62,7 @@ export interface GameState {
   marbles: Marble[];
   bricks: Brick[];
   monsters: Monster[];
+  bullets: Bullet[];
   players: PlayerState[];
 }
 

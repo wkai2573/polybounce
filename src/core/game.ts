@@ -2,6 +2,7 @@ import { ARENA_SIZE, MARBLES_PER_PLAYER, SIDE_ORDER } from './config.ts';
 import { generateLevel, generateMonsters } from './level.ts';
 import { createRng } from './rng.ts';
 import { createBrickCollider } from './stages/bricks.ts';
+import { createBulletStage } from './stages/bullets.ts';
 import { createInputStage } from './stages/input.ts';
 import { createMarbleStage } from './stages/marbles.ts';
 import { createMonsterCollider, createMonsterStage } from './stages/monsters.ts';
@@ -19,15 +20,19 @@ export function createGame(options: GameOptions): Game {
     marbles: [],
     bricks: layout(1),
     monsters: monsters(1),
+    bullets: [],
     players: SIDE_ORDER.slice(0, options.playerCount).map((side) => ({
       side,
       paddle: ARENA_SIZE / 2,
       aiming: false,
+      frozen: 0,
     })),
   };
 
   const applyInputs = createInputStage(state);
-  const advanceMonsters = createMonsterStage(state, createRng(options.seed));
+  const rng = createRng(options.seed);
+  const advanceMonsters = createMonsterStage(state, rng);
+  const advanceBullets = createBulletStage(state, rng);
   const advanceMarbles = createMarbleStage(state, [createBrickCollider(state), createMonsterCollider(state)]);
   const resolveOutcome = createOutcomeStage(state, layout, monsters);
 
@@ -36,6 +41,7 @@ export function createGame(options: GameOptions): Game {
     step(dt, inputs) {
       applyInputs(inputs);
       advanceMonsters(dt);
+      advanceBullets(dt);
       advanceMarbles(dt);
       resolveOutcome();
     },

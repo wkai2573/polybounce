@@ -36,7 +36,7 @@ export function createInputStage(state: GameState) {
   }
 
   function handleInput(player: PlayerState, input: PlayerInput) {
-    if (!player.aiming) {
+    if (!player.aiming && player.frozen === 0) {
       player.paddle = clamp(along(player.side, input.pointer), PADDLE_WIDTH / 2, ARENA_SIZE - PADDLE_WIDTH / 2);
     }
 
