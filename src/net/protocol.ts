@@ -17,6 +17,14 @@ export type HostMessage =
   | { type: 'state'; state: GameState; paused: boolean };
 
 /**
+ * 送上網路前壓縮狀態的數字：小數只留一位。座標與速度多出來的位數肉眼看不出差別，
+ * 卻會讓每則狀態的位元組數多出一倍以上。
+ */
+export function roundForWire<T>(message: T): T {
+  return JSON.parse(JSON.stringify(message, (_key, value) => (typeof value === 'number' ? Math.round(value * 10) / 10 : value)));
+}
+
+/**
  * 一條可雙向傳訊的連線。真實實作用 PeerJS，測試用記憶體內的假連線。
  * In 是這一端會收到的訊息，Out 是這一端會送出的訊息。
  */

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { BULLET_CAP } from './config.ts';
 import { createGame } from './game.ts';
 import type { Brick, Bullet, BulletSource, Game, GameOptions, Monster, PlayerInput } from './types.ts';
 
@@ -215,9 +216,9 @@ describe('BOSS 彈幕：子彈上限與其他規則', () => {
     }
   }
 
-  test('場上子彈總數不會超過 150 發', () => {
+  test('場上子彈總數不會超過上限', () => {
     const game = bossGame();
-    fillStationary(game, 149);
+    fillStationary(game, BULLET_CAP - 1);
 
     let peak = 0;
     for (let t = 0; t < 10; t += DT) {
@@ -225,15 +226,15 @@ describe('BOSS 彈幕：子彈上限與其他規則', () => {
       peak = Math.max(peak, game.state.bullets.length);
     }
 
-    expect(peak).toBe(150);
+    expect(peak).toBe(BULLET_CAP);
   });
 
   test('達到上限時暫時不再發射，數量下降後恢復', () => {
     const game = bossGame();
-    fillStationary(game, 150);
+    fillStationary(game, BULLET_CAP);
 
     for (let t = 0; t < 6; t += DT) step(game);
-    expect(game.state.bullets).toHaveLength(150);
+    expect(game.state.bullets).toHaveLength(BULLET_CAP);
     expect(game.state.bullets.every((b) => b.source === 'monster')).toBe(true);
 
     game.state.bullets = [];

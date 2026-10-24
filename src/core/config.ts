@@ -53,7 +53,7 @@ export const BULLET_RADIUS = 5;
 export const FREEZE_DURATION = 1;
 
 /** 場上子彈總數的上限，達到時暫時不再發射。每發子彈都會隨狀態同步，所以不能無限增加。 */
-export const BULLET_CAP = 150;
+export const BULLET_CAP = 100;
 export const BOSS_BULLET_RADIUS = 4;
 /** BOSS 每發子彈的速度在這個範圍內隨機，讓彈幕有快有慢。 */
 export const BOSS_BULLET_SPEED_MIN = 160;

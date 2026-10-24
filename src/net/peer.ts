@@ -1,7 +1,7 @@
 import Peer, { type DataConnection } from 'peerjs';
 import { createClientSession, type ClientSession } from './client.ts';
 import type { HostSession } from './host.ts';
-import type { Channel } from './protocol.ts';
+import { roundForWire, type Channel } from './protocol.ts';
 import { generateRoomCode, normalizeRoomCode, peerIdForRoom } from './room-code.ts';
 
 /** 這一層只負責把 PeerJS 接成可替換的傳輸介面，不含遊戲規則，所以不在單元測試範圍內。 */
@@ -11,6 +11,11 @@ const ROOM_CODE_ATTEMPTS = 5;
 const PEER_OPTIONS = { debug: 1 };
 /** 狀態是純 JSON，用 json 序列化最單純，也不依賴二進位編碼器對物件的處理。 */
 const CONNECT_OPTIONS = { reliable: true, serialization: 'json' } as const;
+/**
+ * 資料通道的送出緩衝超過這個位元組數，表示網路跟不上。狀態每秒送很多次，舊的快照丟掉沒關係，
+ * 但繼續堆積會撐爆緩衝，瀏覽器會直接關閉通道，玩家就斷線了。
+ */
+const MAX_BUFFERED_BYTES = 128 * 1024;
 
 function toChannel<In, Out>(conn: DataConnection): Channel<In, Out> {
   const closeHandlers: Array<() => void> = [];
@@ -28,7 +33,14 @@ function toChannel<In, Out>(conn: DataConnection): Channel<In, Out> {
   });
   return {
     send: (message) => {
-      if (conn.open) conn.send(message);
+      if (!conn.open) return;
+      const outgoing = message as { type?: string };
+      if (outgoing.type === 'state') {
+        if ((conn.dataChannel?.bufferedAmount ?? 0) > MAX_BUFFERED_BYTES) return;
+        conn.send(roundForWire(message));
+        return;
+      }
+      conn.send(message);
     },
     onMessage: (handler) => {
       conn.on('data', (data) => handler(data as In));
