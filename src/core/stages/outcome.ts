@@ -12,6 +12,7 @@ export function createOutcomeStage(
     state.bricks = layout(state.level);
     state.monsters = monsters(state.level);
     state.bullets = [];
+    state.powerUps = [];
     state.pool = MARBLES_PER_PLAYER * state.players.length;
     state.marbles = [];
   }

@@ -9,6 +9,9 @@ export const FRAMES: Record<Side, { normal: Vec2; tangent: Vec2 }> = {
   right: { normal: { x: -1, y: 0 }, tangent: { x: 0, y: 1 } },
 };
 
+/** 這個方位現在是不是由玩家佔據；沒有玩家的方位是牆。 */
+export const isOccupied = (players: readonly { side: Side }[], side: Side) => players.some((p) => p.side === side);
+
 /** 點沿著某一邊的座標：上下兩邊看 x，左右兩邊看 y。 */
 export function along(side: Side, p: Vec2): number {
   return side === 'bottom' || side === 'top' ? p.x : p.y;

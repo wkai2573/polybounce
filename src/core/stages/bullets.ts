@@ -4,11 +4,11 @@ import {
   FREEZE_DURATION,
   MONSTER_FIRE_INTERVAL,
   PADDLE_THICKNESS,
-  PADDLE_WIDTH,
   SIDE_ORDER,
 } from '../config.ts';
-import { along, depth, pointAt } from '../geometry.ts';
-import type { Bullet, GameState, Monster, Side } from '../types.ts';
+import { along, depth, isOccupied, pointAt } from '../geometry.ts';
+import { paddleWidth } from '../paddle.ts';
+import type { Bullet, GameState, Monster } from '../types.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -19,7 +19,6 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export function createBulletStage(state: GameState, rng: () => number) {
   // 發射倒數只是怪物的過程，不屬於遊戲狀態，所以不放進快照。
   const timers = new WeakMap<Monster, number>();
-  const occupied = new Set<Side>(state.players.map((p) => p.side));
   let nextBulletId = 0;
 
   function fire(monster: Monster) {
@@ -50,7 +49,8 @@ export function createBulletStage(state: GameState, rng: () => number) {
     for (const player of state.players) {
       const a = along(player.side, b.pos);
       const d = depth(player.side, b.pos);
-      const nearA = clamp(a, player.paddle - PADDLE_WIDTH / 2, player.paddle + PADDLE_WIDTH / 2);
+      const half = paddleWidth(player) / 2;
+      const nearA = clamp(a, player.paddle - half, player.paddle + half);
       const nearD = clamp(d, 0, PADDLE_THICKNESS);
       if (Math.hypot(a - nearA, d - nearD) >= BULLET_RADIUS) continue;
       player.frozen = FREEZE_DURATION;
@@ -61,7 +61,7 @@ export function createBulletStage(state: GameState, rng: () => number) {
 
   /** 碰到牆，或整顆越過有玩家的那一邊（沒接到）。 */
   function isOutside(b: Bullet) {
-    return SIDE_ORDER.some((side) => depth(side, b.pos) < (occupied.has(side) ? -BULLET_RADIUS : BULLET_RADIUS));
+    return SIDE_ORDER.some((side) => depth(side, b.pos) < (isOccupied(state.players, side) ? -BULLET_RADIUS : BULLET_RADIUS));
   }
 
   /** 移動一顆子彈，回傳它是否在這一步消失。 */

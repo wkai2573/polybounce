@@ -6,9 +6,9 @@ import {
   MARBLE_SPEED_CAP,
   MARBLE_SPEED_PER_LEVEL,
   PADDLE_THICKNESS,
-  PADDLE_WIDTH,
 } from '../config.ts';
 import { aimDirection, along, FRAMES, pointAt } from '../geometry.ts';
+import { paddleWidth } from '../paddle.ts';
 import type { GameState, PlayerInput, PlayerState, Vec2 } from '../types.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -18,9 +18,7 @@ function marbleSpeed(level: number): number {
 }
 
 /** 輸入階段：依每位玩家的輸入移動擋板、切換瞄準模式、從彈珠池發射彈珠。 */
-export function createInputStage(state: GameState) {
-  let nextMarbleId = 0;
-
+export function createInputStage(state: GameState, nextMarbleId: () => number) {
   function launchPoint(player: PlayerState) {
     return pointAt(player.side, player.paddle, PADDLE_THICKNESS + MARBLE_RADIUS + 1);
   }
@@ -29,7 +27,7 @@ export function createInputStage(state: GameState) {
     const speed = marbleSpeed(state.level);
     state.pool -= 1;
     state.marbles.push({
-      id: nextMarbleId++,
+      id: nextMarbleId(),
       pos: launchPoint(player),
       vel: { x: dir.x * speed, y: dir.y * speed },
     });
@@ -37,7 +35,8 @@ export function createInputStage(state: GameState) {
 
   function handleInput(player: PlayerState, input: PlayerInput) {
     if (!player.aiming && player.frozen === 0) {
-      player.paddle = clamp(along(player.side, input.pointer), PADDLE_WIDTH / 2, ARENA_SIZE - PADDLE_WIDTH / 2);
+      const half = paddleWidth(player) / 2;
+      player.paddle = clamp(along(player.side, input.pointer), half, ARENA_SIZE - half);
     }
 
     if (input.secondary) {

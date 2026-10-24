@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { BRICK_REGION } from './config.ts';
-import { generateLevel, generateMonsters } from './level.ts';
+import { generateLevel, generateMonsters, isBossLevel } from './level.ts';
 
 describe('關卡生成', () => {
   test('第 1 關至少有一個磚塊，且全部落在中央區域內', () => {
@@ -84,5 +84,39 @@ describe('怪物生成', () => {
 
   test('相同種子與關卡產生相同的怪物', () => {
     expect(generateMonsters(5, 7)).toEqual(generateMonsters(5, 7));
+  });
+});
+
+describe('BOSS 關', () => {
+  test('每 5 的倍數關是 BOSS 關，其他關卡不是', () => {
+    for (const level of [5, 10, 15, 20]) expect(isBossLevel(level)).toBe(true);
+    for (const level of [1, 2, 3, 4, 6, 9, 11]) expect(isBossLevel(level)).toBe(false);
+  });
+
+  test('BOSS 關中央是一隻 BOSS，其他關卡的怪物不是 BOSS', () => {
+    expect(generateMonsters(5, 1)[0]!.boss).toBe(true);
+    expect(generateMonsters(10, 1)).toHaveLength(1);
+    for (const level of [3, 4, 6, 9]) expect(generateMonsters(level, 1)[0]!.boss).toBe(false);
+  });
+
+  test('BOSS 的血量明顯高於同一關的一般怪物', () => {
+    const boss = generateMonsters(5, 1)[0]!;
+    // 同一關的一般怪物血量：第 3 關 5 點，每關再加 2 點，所以第 5 關是 9 點。
+    expect(boss.maxHp).toBeGreaterThanOrEqual(9 * 2);
+    expect(boss.hp).toBe(boss.maxHp);
+  });
+
+  test('BOSS 比一般怪物大', () => {
+    expect(generateMonsters(5, 1)[0]!.radius).toBeGreaterThan(generateMonsters(4, 1)[0]!.radius);
+  });
+
+  test('BOSS 整隻落在中央區域內', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const m = generateMonsters(5, seed)[0]!;
+      expect(m.pos.x - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+      expect(m.pos.x + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+      expect(m.pos.y - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+      expect(m.pos.y + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+    }
   });
 });

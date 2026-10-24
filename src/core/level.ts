@@ -1,4 +1,7 @@
 import {
+  BOSS_HP_MULTIPLIER,
+  BOSS_LEVEL_INTERVAL,
+  BOSS_RADIUS,
   BRICK_COLS,
   BRICK_H,
   BRICK_REGION,
@@ -39,20 +42,26 @@ export function generateLevel(level: number, seed: number): Brick[] {
   return bricks;
 }
 
-/** 第 3 關起每關一隻怪物，從中央區域內的隨機位置出發；血量只看關卡。 */
+export const isBossLevel = (level: number) => level % BOSS_LEVEL_INTERVAL === 0;
+
+/** 第 3 關起每關一隻怪物，每 5 關是 BOSS；從中央區域內的隨機位置出發，血量只看關卡。 */
 export function generateMonsters(level: number, seed: number): Monster[] {
   if (level < MONSTER_FIRST_LEVEL) return [];
   const rng = createRng(seed * 7919 + level);
-  const lo = BRICK_REGION.min + MONSTER_RADIUS;
-  const hi = BRICK_REGION.max - MONSTER_RADIUS;
-  const hp = MONSTER_BASE_HP + MONSTER_HP_PER_LEVEL * (level - MONSTER_FIRST_LEVEL);
+  const boss = isBossLevel(level);
+  const radius = boss ? BOSS_RADIUS : MONSTER_RADIUS;
+  const lo = BRICK_REGION.min + radius;
+  const hi = BRICK_REGION.max - radius;
+  const baseHp = MONSTER_BASE_HP + MONSTER_HP_PER_LEVEL * (level - MONSTER_FIRST_LEVEL);
+  const hp = boss ? baseHp * BOSS_HP_MULTIPLIER : baseHp;
   return [
     {
       id: 0,
       pos: { x: lo + rng() * (hi - lo), y: lo + rng() * (hi - lo) },
-      radius: MONSTER_RADIUS,
+      radius,
       hp,
       maxHp: hp,
+      boss,
     },
   ];
 }

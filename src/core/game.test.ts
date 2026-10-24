@@ -374,12 +374,13 @@ describe('審查發現的邊界情況', () => {
   });
 });
 
-const monsterAt = (x: number, y: number, hp = 3): Monster => ({
+const monsterAt = (x: number, y: number, hp = 3, boss = false): Monster => ({
   id: 0,
   pos: { x, y },
-  radius: 36,
+  radius: boss ? 52 : 36,
   hp,
   maxHp: hp,
+  boss,
 });
 
 describe('怪物', () => {
@@ -651,5 +652,111 @@ describe('凍結', () => {
 
       expect(game.state.players.filter((p) => p.frozen > 0)).toHaveLength(1);
     }
+  });
+});
+
+describe('BOSS', () => {
+  test('BOSS 與一般怪物一樣每 5 秒發射一發子彈', () => {
+    const game = createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [monsterAt(400, 500, 3, true)] });
+
+    run(game, 5.1, at(400));
+
+    expect(game.state.bullets).toHaveLength(1);
+  });
+
+  test('BOSS 被彈珠撞到一樣扣一點血，血量歸零時移除並依最大血量得分', () => {
+    const game = createGame({
+      playerCount: 1,
+      seed: 1,
+      layout: cornerLayout,
+      monsters: (level) => (level === 1 ? [monsterAt(400, 560, 1, true)] : []),
+    });
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters.length === 0, at(400));
+
+    expect(game.state.score).toBe(20);
+  });
+});
+
+describe('玩家離開', () => {
+  /** 左右兩邊的玩家沿 y 軸移動。 */
+  const atY = (y: number): PlayerInput => ({ pointer: { x: 0, y }, primary: false, secondary: false });
+
+  test('離開玩家的方位變成牆：原本會漏出去的彈珠改為反彈', () => {
+    const game = newGame(cornerLayout, 2);
+    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.removePlayer('top');
+
+    run(game, 2.5, at(400));
+
+    expect(game.state.marbles).toHaveLength(1);
+    expect(game.state.marbles[0]!.vel.y).toBeGreaterThan(0);
+    expect(game.state.pool).toBe(19);
+  });
+
+  test('彈珠池、分數與其他玩家的擋板不受影響，遊戲繼續', () => {
+    const game = newGame(cornerLayout, 3);
+    game.step(1 / 60, [rightClick(400), at(300), at(500)]);
+    const before = { pool: game.state.pool, score: game.state.score };
+
+    game.removePlayer('top');
+    game.step(1 / 60, [at(400), atY(500)]);
+
+    expect(game.state.players.map((p) => p.side)).toEqual(['bottom', 'left']);
+    expect(game.state.players[1]!.paddle).toBe(500);
+    expect(game.state.pool).toBe(before.pool);
+    expect(game.state.score).toBe(before.score);
+    expect(game.state.status).toBe('playing');
+  });
+
+  test('輸入依剩下的玩家順序對應', () => {
+    const game = newGame(cornerLayout, 3);
+    game.removePlayer('top');
+
+    game.step(1 / 60, [at(300), atY(550)]);
+
+    expect(game.state.players.map((p) => [p.side, p.paddle])).toEqual([
+      ['bottom', 300],
+      ['left', 550],
+    ]);
+  });
+
+  test('只剩一位玩家時遊戲仍然可以繼續', () => {
+    const game = newGame(cornerLayout, 2);
+
+    game.removePlayer('top');
+    game.step(1 / 60, [rightClick(400)]);
+
+    expect(game.state.marbles).toHaveLength(1);
+    expect(game.state.pool).toBe(19);
+  });
+
+  test('飄向離開玩家方位的道具消失', () => {
+    const game = createGame({ playerCount: 2, seed: 1, layout: () => [brickAt(376, 300), brickAt(160, 160)], dropChance: 1, powerUpKinds: ['supply'] });
+    game.step(1 / 60, [rightClick(400), at(400)]);
+    runUntil(game, () => game.state.powerUps.length > 0, at(400));
+    expect(game.state.powerUps.map((p) => p.side).sort()).toEqual(['bottom', 'top']);
+
+    game.removePlayer('top');
+
+    expect(game.state.powerUps.map((p) => p.side)).toEqual(['bottom']);
+  });
+
+  test('過關補滿的彈珠池依剩下的人數計算', () => {
+    const game = createGame({ playerCount: 3, seed: 1, layout: (level) => (level === 1 ? [brickAt(376, 300)] : [brickAt(160, 160)]) });
+    game.step(1 / 60, [rightClick(400), at(400), at(400)]);
+    game.removePlayer('left');
+
+    runUntil(game, () => game.state.level === 2, at(400));
+
+    expect(game.state.pool).toBe(20);
+  });
+
+  test('可以指定方位開局，彈珠池依人數計算', () => {
+    const game = createGame({ playerCount: 2, sides: ['bottom', 'left'], seed: 1, layout: cornerLayout });
+
+    expect(game.state.players.map((p) => p.side)).toEqual(['bottom', 'left']);
+    expect(game.state.pool).toBe(20);
   });
 });

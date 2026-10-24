@@ -1,6 +1,7 @@
-import { MARBLE_RADIUS, PADDLE_MAX_BOUNCE_DEG, PADDLE_THICKNESS, PADDLE_WIDTH, SIDE_ORDER } from '../config.ts';
-import { along, depth, FRAMES } from '../geometry.ts';
-import type { GameState, Marble, Side, Vec2 } from '../types.ts';
+import { MARBLE_RADIUS, PADDLE_MAX_BOUNCE_DEG, PADDLE_THICKNESS, SIDE_ORDER } from '../config.ts';
+import { along, depth, FRAMES, isOccupied } from '../geometry.ts';
+import { paddleWidth } from '../paddle.ts';
+import type { GameState, Marble, Vec2 } from '../types.ts';
 
 /** 彈珠每移動一小段之後呼叫，負責一種實體對彈珠的反彈。prev 是這一小段開始前的位置。 */
 export type MarbleCollider = (m: Marble, prev: Vec2) => void;
@@ -9,11 +10,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 /** 沒有玩家佔據的方位是牆，會把彈珠彈回。 */
 function createWallCollider(state: GameState): MarbleCollider {
-  const occupied = new Set<Side>(state.players.map((p) => p.side));
-
   return (m) => {
     for (const side of SIDE_ORDER) {
-      if (occupied.has(side)) continue;
+      if (isOccupied(state.players, side)) continue;
       const { normal } = FRAMES[side];
       const d = depth(side, m.pos);
       const toward = m.vel.x * normal.x + m.vel.y * normal.y;
@@ -30,8 +29,8 @@ function createWallCollider(state: GameState): MarbleCollider {
 function createPaddleCollider(state: GameState): MarbleCollider {
   return (m, prev) => {
     const line = PADDLE_THICKNESS + MARBLE_RADIUS;
-    const halfWidth = PADDLE_WIDTH / 2;
     for (const player of state.players) {
+      const halfWidth = paddleWidth(player) / 2;
       const { side } = player;
       const { normal, tangent } = FRAMES[side];
       const before = depth(side, prev);

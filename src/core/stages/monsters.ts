@@ -1,6 +1,13 @@
-import { BRICK_REGION, MARBLE_RADIUS, MONSTER_SCORE_PER_HP, MONSTER_SPEED } from '../config.ts';
+import {
+  BRICK_REGION,
+  MARBLE_RADIUS,
+  MONSTER_DROP_THRESHOLDS,
+  MONSTER_SCORE_PER_HP,
+  MONSTER_SPEED,
+} from '../config.ts';
 import type { GameState, Monster, Vec2 } from '../types.ts';
 import type { MarbleCollider } from './marbles.ts';
+import type { Dropper } from './powerups.ts';
 
 /** 怪物階段：每隻怪物朝一個隨機目標緩慢前進，到了就換下一個目標，所以永遠待在中央區域內。 */
 export function createMonsterStage(state: GameState, rng: () => number) {
@@ -33,8 +40,23 @@ export function createMonsterStage(state: GameState, rng: () => number) {
   };
 }
 
-/** 怪物碰撞：彈珠沿圓心連線的法線反彈，怪物扣一點血，血量歸零時移除並得分。 */
-export function createMonsterCollider(state: GameState): MarbleCollider {
+/**
+ * 怪物碰撞：彈珠沿圓心連線的法線反彈，怪物扣一點血，血量歸零時移除並得分。
+ * 血量每降到一個門檻以下就掉落一次道具，每個門檻只掉一次。
+ */
+export function createMonsterCollider(state: GameState, dropper: Dropper): MarbleCollider {
+  // 已經掉落過的門檻只是怪物的過程，不屬於遊戲狀態，所以不放進快照。
+  const dropped = new WeakMap<Monster, Set<number>>();
+
+  function dropForThresholds(monster: Monster) {
+    const done = dropped.get(monster) ?? new Set<number>();
+    dropped.set(monster, done);
+    const crossed = MONSTER_DROP_THRESHOLDS.filter((t) => !done.has(t) && monster.hp <= monster.maxHp * t);
+    if (crossed.length === 0) return;
+    for (const t of crossed) done.add(t);
+    dropper.drop(monster.pos);
+  }
+
   return (m) => {
     for (const monster of state.monsters) {
       const dx = m.pos.x - monster.pos.x;
@@ -53,6 +75,7 @@ export function createMonsterCollider(state: GameState): MarbleCollider {
       m.pos.y = monster.pos.y + ny * reach;
 
       monster.hp -= 1;
+      dropForThresholds(monster);
       if (monster.hp <= 0) {
         state.score += monster.maxHp * MONSTER_SCORE_PER_HP;
         state.monsters = state.monsters.filter((x) => x !== monster);
