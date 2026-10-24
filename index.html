@@ -50,6 +50,13 @@
       #lock-hint.show {
         display: block;
       }
+      #version {
+        position: absolute;
+        right: 14px;
+        bottom: 10px;
+        font-size: 14px;
+        opacity: 0.5;
+      }
       .level-row {
         display: flex;
         gap: 12px;
@@ -192,6 +199,7 @@
             <button id="join">加入房間</button>
           </div>
           <p id="menu-error" class="error"></p>
+          <span id="version"></span>
         </div>
 
         <div id="lobby" class="screen">

@@ -38,6 +38,10 @@ const lockHint = $('lock-hint');
 const back = $<HTMLButtonElement>('back');
 const muteButton = $<HTMLButtonElement>('mute');
 
+const versionEl = $('version');
+versionEl.textContent = `v${__APP_VERSION__}`;
+versionEl.title = __APP_COMMIT__ ? `commit ${__APP_COMMIT__}` : '';
+
 const sfx = createSfx();
 const renderMute = () => {
   muteButton.textContent = sfx.muted ? '🔇 靜音' : '🔊 音效';

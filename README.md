@@ -51,6 +51,10 @@ bun run typecheck  # 型別檢查
 bun test           # 執行測試
 ```
 
+## 版本號
+
+主畫面右下角顯示版本號，格式為 `v主版本.次版本.修訂號`。主版本與次版本寫在 [package.json](package.json) 的 `version`，修訂號是建置時 git 的 commit 總數，所以每次 commit 都會自動遞增，不必手動改。要升主版本或次版本時才修改 package.json。游標移到版本號上可以看到對應的 commit。
+
 ## 部署
 
 推送到 `main` 後，[GitHub Actions](.github/workflows/deploy.yml) 會依序跑型別檢查、測試與建置，通過後自動部署到 GitHub Pages。
