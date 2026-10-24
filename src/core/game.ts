@@ -1,5 +1,6 @@
-import { ARENA_SIZE, MARBLES_PER_PLAYER, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './config.ts';
+import { MARBLES_PER_PLAYER, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './config.ts';
 import { generateLevel, generateMonsters } from './level.ts';
+import { createPlayer } from './paddle.ts';
 import { createRng } from './rng.ts';
 import { createBrickCollider } from './stages/bricks.ts';
 import { createBulletStage } from './stages/bullets.ts';
@@ -26,14 +27,8 @@ export function createGame(options: GameOptions): Game {
     monsters: monsters(startLevel),
     bullets: [],
     powerUps: [],
-    players: sides.map((side) => ({
-      side,
-      paddle: ARENA_SIZE / 2,
-      aiming: false,
-      frozen: 0,
-      widen: 0,
-      invincible: 0,
-    })),
+    players: sides.map(createPlayer),
+    effects: { pierce: 0, marbleSize: null },
   };
 
   let marbleCount = 0;

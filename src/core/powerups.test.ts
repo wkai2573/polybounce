@@ -238,11 +238,11 @@ describe('加寬', () => {
     const game = widenGame();
     catchWiden(game);
 
-    expect(game.state.players[0]!.widen).toBeGreaterThan(9.9);
+    expect(game.state.players[0]!.paddleEffect).toEqual({ kind: 'widen', left: expect.closeTo(10, 1) });
     run(game, 9.5, 400);
-    expect(game.state.players[0]!.widen).toBeGreaterThan(0);
+    expect(game.state.players[0]!.paddleEffect).not.toBeNull();
     run(game, 1, 400);
-    expect(game.state.players[0]!.widen).toBe(0);
+    expect(game.state.players[0]!.paddleEffect).toBeNull();
   });
 
   test('加寬的擋板接得到原本會漏接的彈珠', () => {
@@ -277,11 +277,11 @@ describe('加寬', () => {
     const game = widenGame();
     catchWiden(game, 1);
     run(game, 6, 400);
-    expect(game.state.players[0]!.widen).toBeLessThan(5);
+    expect(game.state.players[0]!.paddleEffect!.left).toBeLessThan(5);
 
     catchWiden(game, 2);
 
-    expect(game.state.players[0]!.widen).toBeGreaterThan(9.9);
+    expect(game.state.players[0]!.paddleEffect!.left).toBeGreaterThan(9.9);
     // 偏移 110 超出加寬後的半寬 90；若寬度疊加成 135 就會接到。
     expect(catchesAt(game, 510)).toBe(false);
   });
@@ -294,15 +294,15 @@ describe('加寬', () => {
 
     game.step(1 / 60, [at(400), at(400)]);
 
-    expect(game.state.players[0]!.widen).toBeGreaterThan(9.9);
-    expect(game.state.players[1]!.widen).toBe(0);
+    expect(game.state.players[0]!.paddleEffect?.kind).toBe('widen');
+    expect(game.state.players[1]!.paddleEffect).toBeNull();
     expect(game.state.powerUps).toHaveLength(1);
     expect(game.state.powerUps[0]!.side).toBe('top');
 
     game.state.powerUps[0]!.pos.y = 10;
     game.step(1 / 60, [at(400), at(400)]);
 
-    expect(game.state.players[1]!.widen).toBeGreaterThan(9.9);
+    expect(game.state.players[1]!.paddleEffect?.kind).toBe('widen');
   });
 
   test('擋板在邊緣時接到加寬，擋板不會超出場地', () => {
@@ -313,6 +313,173 @@ describe('加寬', () => {
     game.step(1 / 60, [at(0)]);
 
     expect(game.state.players[0]!.paddle).toBeGreaterThanOrEqual(90);
+  });
+});
+
+describe('縮短擋板', () => {
+  const shortenGame = (opts: Partial<GameOptions> = {}) =>
+    dropGame({ layout: () => [cornerBrick()], powerUpKinds: ['shorten'], ...opts });
+  const catchShorten = (game: Game, id = 900) => {
+    placeOnPaddle(game, 'bottom', 'shorten', id, id);
+    game.step(1 / 60, inputs(game, 400));
+  };
+
+  /** 彈珠在 x=400 垂直來回；擋板移到 paddleX 等著，回傳回來時彈珠是否還在場上。 */
+  const catchesAt = (game: Game, paddleX: number) => {
+    game.step(1 / 60, inputs(game, paddleX, rightClick(400)));
+    run(game, 4.5, paddleX);
+    return game.state.marbles.length === 1;
+  };
+
+  test('被擋板接到，該玩家的擋板縮短 6 秒，之後恢復', () => {
+    const game = shortenGame();
+    catchShorten(game);
+
+    expect(game.state.players[0]!.paddleEffect).toEqual({ kind: 'shorten', left: expect.closeTo(6, 1) });
+    run(game, 5.5, 400);
+    expect(game.state.players[0]!.paddleEffect).not.toBeNull();
+    run(game, 1, 400);
+    expect(game.state.players[0]!.paddleEffect).toBeNull();
+  });
+
+  test('縮短到原寬度的 0.6 倍：原本接得到的彈珠會漏接', () => {
+    // 回來的彈珠在 x=400，擋板在 x=450：一般半寬 60 接得到，縮短後半寬 36 接不到。
+    const plain = shortenGame();
+    const short = shortenGame();
+    catchShorten(short);
+
+    expect(catchesAt(plain, 450)).toBe(true);
+    expect(catchesAt(short, 450)).toBe(false);
+  });
+
+  test('縮短後擋板邊緣的接球範圍剛好是半寬 36', () => {
+    const game = shortenGame();
+    catchShorten(game);
+
+    // 偏移 30 在半寬 36 之內接得到，偏移 50 接不到。
+    expect(catchesAt(game, 430)).toBe(true);
+    const other = shortenGame();
+    catchShorten(other);
+    expect(catchesAt(other, 450)).toBe(false);
+  });
+
+  test('加寬與縮短互相覆蓋並重新計時，不疊加也不抵銷', () => {
+    const game = shortenGame();
+    placeOnPaddle(game, 'bottom', 'widen', 1, 1);
+    game.step(1 / 60, inputs(game, 400));
+    expect(game.state.players[0]!.paddleEffect?.kind).toBe('widen');
+
+    catchShorten(game, 2);
+    expect(game.state.players[0]!.paddleEffect).toEqual({ kind: 'shorten', left: expect.closeTo(6, 1) });
+
+    placeOnPaddle(game, 'bottom', 'widen', 3, 3);
+    game.step(1 / 60, inputs(game, 400));
+    expect(game.state.players[0]!.paddleEffect).toEqual({ kind: 'widen', left: expect.closeTo(10, 1) });
+  });
+
+  test('縮短時重新接到只重新計時', () => {
+    const game = shortenGame();
+    catchShorten(game, 1);
+    run(game, 4, 400);
+
+    catchShorten(game, 2);
+
+    expect(game.state.players[0]!.paddleEffect!.left).toBeGreaterThan(5.9);
+  });
+
+  test('只影響接到的玩家，各接各的', () => {
+    const game = shortenGame({ playerCount: 2 });
+    placeOnPaddle(game, 'bottom', 'shorten', 7, 1);
+    const top = placeOnPaddle(game, 'top', 'shorten', 7, 2);
+    top.pos.y = 300;
+
+    game.step(1 / 60, inputs(game, 400));
+
+    expect(game.state.players[0]!.paddleEffect?.kind).toBe('shorten');
+    expect(game.state.players[1]!.paddleEffect).toBeNull();
+    expect(game.state.powerUps).toHaveLength(1);
+  });
+
+  test('擋板位置被夾回場地範圍內', () => {
+    const game = shortenGame();
+    // 瞄準中輸入階段不會移動擋板，所以位置維持在超出範圍的地方，直到拾取時被夾回。
+    const player = game.state.players[0]!;
+    player.aiming = true;
+    player.paddle = 0;
+    placeOnPaddle(game, 'bottom', 'shorten');
+
+    game.step(1 / 60, inputs(game, 0));
+
+    expect(player.paddleEffect?.kind).toBe('shorten');
+    expect(player.paddle).toBe(36);
+  });
+
+  test('核心大小不受縮短影響', () => {
+    const game = shortenGame();
+    catchShorten(game);
+    // 擋板中心 400：核心範圍仍是 392 到 408，偏移 7.5 的子彈碰得到。
+    game.state.bullets.push({ id: 1, pos: { x: 415.5, y: 776 }, vel: { x: 0, y: 60 }, source: 'monster' });
+
+    run(game, 1, 400);
+
+    expect(game.state.players[0]!.lives).toBe(2);
+  });
+});
+
+describe('補血', () => {
+  const healGame = (opts: Partial<GameOptions> = {}) =>
+    dropGame({ layout: () => [cornerBrick()], powerUpKinds: ['heal'], ...opts });
+
+  test('活著的玩家接到補血，自己的生命加 1', () => {
+    const game = healGame();
+    game.state.players[0]!.lives = 1;
+    placeOnPaddle(game, 'bottom', 'heal');
+
+    game.step(1 / 60, inputs(game, 400));
+
+    expect(game.state.players[0]!.lives).toBe(2);
+    expect(game.state.powerUps).toHaveLength(0);
+  });
+
+  test('生命不超過 3 點：已滿時接到也不增加', () => {
+    const game = healGame();
+    game.state.players[0]!.lives = 2;
+    placeOnPaddle(game, 'bottom', 'heal', 1, 1);
+    placeOnPaddle(game, 'bottom', 'heal', 2, 2);
+
+    game.step(1 / 60, inputs(game, 400));
+
+    expect(game.state.players[0]!.lives).toBe(3);
+  });
+
+  test('各接各的，不影響其他玩家，也不套用批次規則', () => {
+    const game = healGame({ playerCount: 2 });
+    game.state.players[0]!.lives = 1;
+    game.state.players[1]!.lives = 1;
+    placeOnPaddle(game, 'bottom', 'heal', 7, 1);
+    const top = placeOnPaddle(game, 'top', 'heal', 7, 2);
+    top.pos.y = 300;
+
+    game.step(1 / 60, inputs(game, 400));
+
+    expect(game.state.players[0]!.lives).toBe(2);
+    expect(game.state.players[1]!.lives).toBe(1);
+    expect(game.state.powerUps).toHaveLength(1);
+
+    game.state.powerUps[0]!.pos.y = 10;
+    game.step(1 / 60, inputs(game, 400));
+
+    expect(game.state.players[1]!.lives).toBe(2);
+  });
+
+  test('實際掉落的補血也能從磚塊飄下來被接到', () => {
+    const game = healGame({ layout: inPathLayout });
+    game.state.players[0]!.lives = 1;
+    breakPathBrick(game);
+
+    runUntil(game, () => game.state.powerUps.length === 0, 400);
+
+    expect(game.state.players[0]!.lives).toBe(2);
   });
 });
 
@@ -409,7 +576,7 @@ describe('怪物與 BOSS 掉落', () => {
       layout: () => [cornerBrick()],
       monsters: (level) => (level === 1 ? [monsterAt(400, 560, hp, boss)] : []),
       dropChance: 0,
-      powerUpKinds: ['widen'],
+      monsterDropKinds: ['widen'],
     });
 
   /** 第一位玩家的擋板跟著怪物走，彈珠打完就再補發一顆，讓彈珠持續撞擊怪物。 */

@@ -117,10 +117,23 @@ describe('音效事件', () => {
     }
   });
 
-  test('貫通倒數變短不算拾取', () => {
+  test('接到補血、放大彈珠、縮小彈珠、縮短擋板也都算拾取', () => {
+    for (const kind of ['heal', 'enlarge', 'shrink', 'shorten'] as const) {
+      const game = newGame();
+      game.state.players[0]!.lives = 1;
+      game.state.powerUps.push({ id: 1, batch: 1, kind, side: 'bottom', pos: { x: 400, y: 790 } });
+
+      const events = stepEvents(game, [at(400)]);
+
+      expect(events.map((e) => e.kind)).toContain('pickup');
+    }
+  });
+
+  test('貫通與彈珠大小的倒數變短不算拾取', () => {
     const game = newGame();
     stepEvents(game, [rightClick(400)]);
-    game.state.marbles[0]!.pierce = 5;
+    game.state.effects.pierce = 3;
+    game.state.effects.marbleSize = { kind: 'enlarge', left: 6 };
 
     expect(collect(game, 0.5, at(400)).has('pickup')).toBe(false);
   });
@@ -132,23 +145,64 @@ describe('音效事件', () => {
     expect(stepEvents(game, [at(600)]).map((e) => e.kind)).not.toContain('pickup');
   });
 
-  test('子彈打到擋板：凍結', () => {
+  test('子彈打到核心：受傷', () => {
     const monster: Monster = { id: 0, pos: { x: 400, y: 500 }, radius: 36, hp: 3, maxHp: 3, boss: false };
     const game = newGame({ monsters: () => [{ ...monster }] });
 
-    expect(collect(game, 8, at(400)).has('freeze')).toBe(true);
+    const kinds = collect(game, 8, at(400));
+
+    expect(kinds.has('hurt')).toBe(true);
+    expect(kinds.has('death')).toBe(false);
   });
 
-  test('凍結中再被 BOSS 的子彈打到，凍結時間沒變，不會再有凍結音效', () => {
+  test('受傷後的無敵期間，子彈穿過核心，不會再有受傷音效', () => {
     const game = newGame();
     game.state.bullets.push({ id: 1, pos: { x: 400, y: 776 }, vel: { x: 0, y: 60 }, source: 'boss' });
-    expect(collect(game, 0.3, at(400)).has('freeze')).toBe(true);
-    expect(game.state.players[0]!.frozen).toBeGreaterThan(0);
+    expect(collect(game, 0.3, at(400)).has('hurt')).toBe(true);
+    expect(game.state.players[0]!.lives).toBe(2);
 
     game.state.bullets.push({ id: 2, pos: { x: 400, y: 780 }, vel: { x: 0, y: 60 }, source: 'boss' });
 
-    expect(collect(game, 0.15, at(400)).has('freeze')).toBe(false);
-    expect(game.state.bullets).toHaveLength(0);
+    expect(collect(game, 0.15, at(400)).has('hurt')).toBe(false);
+  });
+
+  test('生命歸零：只有死亡音效，沒有受傷音效', () => {
+    const game = newGame({ playerCount: 2 });
+    game.state.players[0]!.lives = 1;
+    game.state.bullets.push({ id: 1, pos: { x: 400, y: 790 }, vel: { x: 0, y: 0 }, source: 'monster' });
+
+    const kinds = stepEvents(game, [at(400), at(400)]).map((e) => e.kind);
+
+    expect(kinds).toContain('death');
+    expect(kinds).not.toContain('hurt');
+  });
+
+  test('屍體被撞活：復活音效，不算補血拾取', () => {
+    const game = newGame({ playerCount: 2 });
+    const top = game.state.players[1]!;
+    top.lives = 0;
+    top.dead = true;
+    top.revive = 4;
+    game.state.marbles.push({ id: 1, pos: { x: 400, y: 12 }, vel: { x: 0, y: -420 } });
+
+    const kinds = stepEvents(game, [at(400), at(400)]).map((e) => e.kind);
+
+    expect(kinds).toContain('revive');
+    expect(kinds).not.toContain('pickup');
+  });
+
+  test('過關時死亡的玩家一起復活，只有過關事件，不算復活或補血', () => {
+    const game = newGame({ playerCount: 2, layout: (level) => (level === 1 ? [brickAt(376, 300)] : [corner()]) });
+    const top = game.state.players[1]!;
+    top.lives = 0;
+    top.dead = true;
+    stepEvents(game, [rightClick(400), at(400)]);
+
+    const kinds = collect(game, 3, at(400));
+
+    expect(kinds.has('clear')).toBe(true);
+    expect(kinds.has('revive')).toBe(false);
+    expect(kinds.has('pickup')).toBe(false);
   });
 
   test('失敗後再來一局，彈珠池補滿不會被當成補給', () => {

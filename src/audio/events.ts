@@ -5,7 +5,10 @@ export type SfxEvent =
   | { kind: 'hit'; count: number }
   | { kind: 'launch'; count: number }
   | { kind: 'pickup' }
-  | { kind: 'freeze' }
+  /** 有玩家被子彈打到核心但還活著。 */
+  | { kind: 'hurt' }
+  | { kind: 'death' }
+  | { kind: 'revive' }
   | { kind: 'clear' }
   | { kind: 'defeat' };
 
@@ -19,13 +22,15 @@ export interface Summary {
   score: number;
   pool: number;
   marbles: number;
-  /** 場上彈珠中最長的貫通剩餘秒數；只有接到貫通時才會變長。 */
+  /** 整場貫通與彈珠大小效果的剩餘秒數；只有接到對應的道具時才會變長。 */
   pierce: number;
+  marbleSize: number;
   /** 磚塊與怪物目前的血量，用編號對照。 */
   targets: Map<string, number>;
-  /** 每位玩家的凍結與加寬剩餘秒數，用方位對照。 */
-  frozen: Map<string, number>;
-  widen: Map<string, number>;
+  /** 每位玩家的擋板寬度效果剩餘秒數與生命，用方位對照。 */
+  paddleEffect: Map<string, number>;
+  lives: Map<string, number>;
+  dead: Map<string, boolean>;
 }
 
 export function summarize(state: GameState): Summary {
@@ -38,15 +43,21 @@ export function summarize(state: GameState): Summary {
     score: state.score,
     pool: state.pool,
     marbles: state.marbles.length,
-    pierce: Math.max(0, ...state.marbles.map((m) => m.pierce)),
+    pierce: state.effects.pierce,
+    marbleSize: state.effects.marbleSize?.left ?? 0,
     targets,
-    frozen: new Map(state.players.map((p) => [p.side, p.frozen])),
-    widen: new Map(state.players.map((p) => [p.side, p.widen])),
+    paddleEffect: new Map(state.players.map((p) => [p.side, p.paddleEffect?.left ?? 0])),
+    lives: new Map(state.players.map((p) => [p.side, p.lives])),
+    dead: new Map(state.players.map((p) => [p.side, p.dead])),
   };
 }
 
 const rose = (before: Map<string, number>, after: Map<string, number>) =>
   [...after].some(([side, value]) => value > (before.get(side) ?? 0));
+
+/** 方位對照中，由 from 變成 to 的方位；沒有出現在前一份的方位不算。 */
+const flipped = (before: Map<string, boolean>, after: Map<string, boolean>, from: boolean) =>
+  [...after].some(([side, value]) => before.get(side) === from && value === !from);
 
 /**
  * 從前後兩個摘要推導該播哪些音效。事件由狀態的變化推得，所以單人、房主與其他玩家端
@@ -73,14 +84,22 @@ export function deriveEvents(prev: Summary | null, next: Summary): SfxEvent[] {
 
   if (sameLevel) {
     const supplied = next.pool > prev.pool;
-    const widened = rose(prev.widen, next.widen);
+    const reshaped = rose(prev.paddleEffect, next.paddleEffect);
     // 多球與環爆：場上彈珠的增加量超過發射的顆數。
     const multiplied = next.marbles - prev.marbles - launches >= 2;
-    const pierced = next.pierce > prev.pierce;
-    if (supplied || widened || multiplied || pierced) events.push({ kind: 'pickup' });
+    const fieldEffect = next.pierce > prev.pierce || next.marbleSize > prev.marbleSize;
+    // 補血：活著的玩家生命增加。復活也會讓生命增加，但那是另一種事件。
+    const healed = [...next.lives].some(([side, lives]) => lives > (prev.lives.get(side) ?? 0) && prev.dead.get(side) === false);
+    if (supplied || reshaped || multiplied || fieldEffect || healed) events.push({ kind: 'pickup' });
+
+    const died = flipped(prev.dead, next.dead, false);
+    // 死亡的那一下生命也會減少，只播死亡音效。
+    const hurt = [...next.lives].some(([side, lives]) => lives < (prev.lives.get(side) ?? 0) && next.dead.get(side) === false);
+    if (hurt) events.push({ kind: 'hurt' });
+    if (died) events.push({ kind: 'death' });
+    if (flipped(prev.dead, next.dead, true)) events.push({ kind: 'revive' });
   }
 
-  if (rose(prev.frozen, next.frozen)) events.push({ kind: 'freeze' });
   if (!sameLevel) events.push({ kind: 'clear' });
   if (prev.status === 'playing' && next.status === 'defeated') events.push({ kind: 'defeat' });
   return events;

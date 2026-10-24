@@ -9,8 +9,6 @@ export interface Marble {
   id: number;
   pos: Vec2;
   vel: Vec2;
-  /** 貫通剩餘秒數，0 代表沒有貫通。貫通中的彈珠穿過磚塊與怪物，仍被牆與擋板反彈。 */
-  pierce: number;
 }
 
 /** 磚塊的 x、y 為左上角。 */
@@ -35,7 +33,7 @@ export interface Monster {
   boss: boolean;
 }
 
-/** 子彈是誰射的：BOSS 的子彈比較小、顏色不同，並且用專屬的凍結規則。 */
+/** 子彈是誰射的：BOSS 的子彈比一般怪物的小、顏色不同。 */
 export type BulletSource = 'boss' | 'monster';
 
 /** 怪物發射的子彈，pos 是圓心。不會與彈珠互相碰撞，也不會被磚塊擋住。 */
@@ -46,7 +44,16 @@ export interface Bullet {
   source: BulletSource;
 }
 
-export type PowerUpKind = 'supply' | 'widen' | 'multiball' | 'pierce' | 'burst';
+export type PowerUpKind =
+  | 'supply'
+  | 'widen'
+  | 'multiball'
+  | 'pierce'
+  | 'burst'
+  | 'heal'
+  | 'enlarge'
+  | 'shrink'
+  | 'shorten';
 
 /**
  * 掉落的道具，pos 是圓心。同一次掉落朝每位玩家的方位各掉一個，共用同一個 batch 與 kind。
@@ -60,17 +67,36 @@ export interface PowerUp {
   pos: Vec2;
 }
 
+/** 擋板寬度效果：加寬與縮短是同一個維度，後接到的覆蓋前一個。 */
+export interface PaddleEffect {
+  kind: 'widen' | 'shorten';
+  /** 剩餘秒數。 */
+  left: number;
+}
+
 export interface PlayerState {
   side: Side;
   /** 擋板中心沿著自己那一邊的座標：上下兩邊是 x，左右兩邊是 y。 */
   paddle: number;
   aiming: boolean;
-  /** 凍結剩餘秒數，0 代表沒有凍結。凍結只鎖擋板移動。 */
-  frozen: number;
-  /** 加寬剩餘秒數，0 代表擋板是原本的寬度。 */
-  widen: number;
-  /** BOSS 子彈的無敵剩餘秒數：解凍後這段時間內，BOSS 的子彈穿過擋板。 */
+  /** 生命，被子彈打到核心扣 1 點，歸零就死亡。 */
+  lives: number;
+  /** 死亡時擋板停在原位變成屍體，該方位對彈珠是牆，玩家不能操作。 */
+  dead: boolean;
+  /** 無敵剩餘秒數：受傷或復活後這段時間內，子彈穿過核心。 */
   invincible: number;
+  /** 屍體的復活進度：彈珠撞到屍體的次數，只有死亡時才有意義。 */
+  revive: number;
+  /** 目前的擋板寬度效果，null 代表原本的寬度。死亡期間不倒數，所以屍體的寬度不變。 */
+  paddleEffect: PaddleEffect | null;
+}
+
+/** 整場效果：全隊共用，期間場上所有彈珠都受影響，包含新發射與分裂出的。 */
+export interface FieldEffects {
+  /** 貫通剩餘秒數，0 代表沒有貫通。貫通中的彈珠穿過磚塊與怪物，仍被牆與擋板反彈。 */
+  pierce: number;
+  /** 彈珠大小效果：放大與縮小二選一，null 代表原本的大小。 */
+  marbleSize: { kind: 'enlarge' | 'shrink'; left: number } | null;
 }
 
 /** primary 與 secondary 是這一幀才按下的邊緣訊號，不是持續按住。 */
@@ -93,6 +119,7 @@ export interface GameState {
   bullets: Bullet[];
   powerUps: PowerUp[];
   players: PlayerState[];
+  effects: FieldEffects;
 }
 
 export interface Game {
@@ -118,6 +145,8 @@ export interface GameOptions {
   monsters?: (level: number) => Monster[];
   /** 擊碎磚塊掉落道具的機率，預設 POWERUP_DROP_CHANCE。 */
   dropChance?: number;
-  /** 可能掉落的道具類型，預設全部。 */
+  /** 擊碎磚塊時可能掉落的道具類型，預設 POWERUP_KINDS。 */
   powerUpKinds?: PowerUpKind[];
+  /** 怪物血量降到門檻時必掉的道具類型，預設 MONSTER_DROP_KINDS。 */
+  monsterDropKinds?: PowerUpKind[];
 }

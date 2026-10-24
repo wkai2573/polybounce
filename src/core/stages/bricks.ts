@@ -1,4 +1,5 @@
-import { MARBLE_RADIUS, SCORE_PER_HP } from '../config.ts';
+import { SCORE_PER_HP } from '../config.ts';
+import { isPiercing, marbleRadius } from '../effects.ts';
 import type { Brick, GameState, Marble } from '../types.ts';
 import type { MarbleCollider } from './marbles.ts';
 import type { Dropper } from './powerups.ts';
@@ -13,7 +14,7 @@ const distanceTo = (m: Marble, brick: Brick) => {
 
 /**
  * 磚塊碰撞：一般彈珠每一小段最多撞一塊磚，沿著穿透比較淺的那個軸反彈；
- * 貫通中的彈珠穿過磚塊不反彈，每進入一塊磚扣一點血。磚塊碎裂時得分與機率掉落道具。
+ * 整場貫通期間，彈珠穿過磚塊不反彈，每進入一塊磚扣一點血。磚塊碎裂時得分與機率掉落道具。
  */
 export function createBrickCollider(state: GameState, dropper: Dropper): MarbleCollider {
   // 貫通的彈珠目前正與哪些磚塊重疊，只是碰撞的過程，不屬於遊戲狀態，所以不放進快照。
@@ -28,26 +29,26 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
     }
   }
 
-  function pierceThrough(m: Marble) {
+  function pierceThrough(m: Marble, radius: number) {
     const before = overlapping.get(m);
     const now = new Set<Brick>();
     // 磚塊碎裂會改動 state.bricks，所以先複製一份再走訪。
     for (const brick of state.bricks.slice()) {
-      if (distanceTo(m, brick) >= MARBLE_RADIUS) continue;
+      if (distanceTo(m, brick) >= radius) continue;
       now.add(brick);
       if (!before?.has(brick)) damage(brick);
     }
     overlapping.set(m, now);
   }
 
-  function bounce(m: Marble) {
+  function bounce(m: Marble, radius: number) {
     for (const brick of state.bricks) {
       const cx = clamp(m.pos.x, brick.x, brick.x + brick.w);
       const cy = clamp(m.pos.y, brick.y, brick.y + brick.h);
       const dx = m.pos.x - cx;
       const dy = m.pos.y - cy;
       const dist = Math.hypot(dx, dy);
-      if (dist >= MARBLE_RADIUS) continue;
+      if (dist >= radius) continue;
 
       if (dist === 0) {
         // 中心已陷進磚塊內，沒有可用的法線，只能掉頭。
@@ -60,8 +61,8 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
         if (into >= 0) continue;
         m.vel.x -= 2 * into * nx;
         m.vel.y -= 2 * into * ny;
-        m.pos.x = cx + nx * MARBLE_RADIUS;
-        m.pos.y = cy + ny * MARBLE_RADIUS;
+        m.pos.x = cx + nx * radius;
+        m.pos.y = cy + ny * radius;
       }
 
       damage(brick);
@@ -70,11 +71,12 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
   }
 
   return (m) => {
-    if (m.pierce > 0) {
-      pierceThrough(m);
+    const radius = marbleRadius(state);
+    if (isPiercing(state)) {
+      pierceThrough(m, radius);
     } else {
       overlapping.delete(m);
-      bounce(m);
+      bounce(m, radius);
     }
   };
 }

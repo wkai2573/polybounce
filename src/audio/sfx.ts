@@ -9,7 +9,9 @@ const MIN_GAP: Record<SfxEvent['kind'], number> = {
   hit: 0.04,
   launch: 0.05,
   pickup: 0.12,
-  freeze: 0.25,
+  hurt: 0.25,
+  death: 0.6,
+  revive: 0.6,
   clear: 0.6,
   defeat: 0.6,
 };
@@ -131,9 +133,16 @@ export function createSfx(): Sfx {
         tone('triangle', 660, 660, 0.07, 0.08, 0.35);
         tone('triangle', 880, 880, 0.14, 0.14, 0.35);
         break;
-      case 'freeze':
-        noiseBurst(2400, 200, 0.45, 0.5);
-        tone('sine', 200, 70, 0, 0.35, 0.3);
+      case 'hurt':
+        noiseBurst(2400, 200, 0.3, 0.5);
+        tone('sine', 200, 70, 0, 0.25, 0.3);
+        break;
+      case 'death':
+        tone('sawtooth', 440, 55, 0, 0.7, 0.3);
+        noiseBurst(1800, 120, 0.6, 0.4);
+        break;
+      case 'revive':
+        [262, 330, 392, 523].forEach((f, i) => tone('sine', f, f * 1.02, i * 0.07, 0.25, 0.35));
         break;
       case 'clear':
         [392, 494, 587, 784].forEach((f, i) => tone('triangle', f, f, i * 0.09, 0.2, 0.35));

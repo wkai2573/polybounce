@@ -2,11 +2,11 @@ import {
   AIM_MIN_ANGLE_DEG,
   ARENA_SIZE,
   MARBLE_BASE_SPEED,
-  MARBLE_RADIUS,
   MARBLE_SPEED_CAP,
   MARBLE_SPEED_PER_LEVEL,
   PADDLE_THICKNESS,
 } from '../config.ts';
+import { marbleRadius } from '../effects.ts';
 import { aimDirection, along, FRAMES, pointAt } from '../geometry.ts';
 import { paddleWidth } from '../paddle.ts';
 import type { GameState, PlayerInput, PlayerState, Vec2 } from '../types.ts';
@@ -20,7 +20,7 @@ function marbleSpeed(level: number): number {
 /** 輸入階段：依每位玩家的輸入移動擋板、切換瞄準模式、從彈珠池發射彈珠。 */
 export function createInputStage(state: GameState, nextMarbleId: () => number) {
   function launchPoint(player: PlayerState) {
-    return pointAt(player.side, player.paddle, PADDLE_THICKNESS + MARBLE_RADIUS + 1);
+    return pointAt(player.side, player.paddle, PADDLE_THICKNESS + marbleRadius(state) + 1);
   }
 
   function launch(player: PlayerState, dir: Vec2) {
@@ -30,12 +30,14 @@ export function createInputStage(state: GameState, nextMarbleId: () => number) {
       id: nextMarbleId(),
       pos: launchPoint(player),
       vel: { x: dir.x * speed, y: dir.y * speed },
-      pierce: 0,
     });
   }
 
   function handleInput(player: PlayerState, input: PlayerInput) {
-    if (!player.aiming && player.frozen === 0) {
+    // 死亡的玩家不能移動、瞄準或發射。
+    if (player.dead) return;
+
+    if (!player.aiming) {
       const half = paddleWidth(player) / 2;
       player.paddle = clamp(along(player.side, input.pointer), half, ARENA_SIZE - half);
     }

@@ -64,37 +64,50 @@ function placeOnPaddle(game: Game, side: Side, kind: PowerUpKind, batch = 99, id
 const directionDeg = (m: Marble) => (((Math.atan2(m.vel.y, m.vel.x) * 180) / Math.PI) % 360 + 360) % 360;
 const speedOf = (m: Marble) => Math.hypot(m.vel.x, m.vel.y);
 
-describe('貫通', () => {
-  test('接到貫通時，場上所有彈珠的貫通剩餘秒數設為 6；之後才發射的彈珠沒有貫通', () => {
+/** 整場貫通：直接把倒數設到 3 秒，等同剛接到貫通。 */
+const startPierce = (game: Game) => {
+  game.state.effects.pierce = 3;
+};
+
+describe('貫通（整場效果）', () => {
+  test('接到貫通時，整場貫通倒數設為 3 秒', () => {
     const game = newGame();
     launch(game);
-    launch(game);
-    expect(game.state.marbles.every((m) => m.pierce === 0)).toBe(true);
+    expect(game.state.effects.pierce).toBe(0);
 
     placeOnPaddle(game, 'bottom', 'pierce');
     step(game);
 
-    expect(game.state.marbles).toHaveLength(2);
-    expect(game.state.marbles.map((m) => m.pierce)).toEqual([6, 6]);
-
-    const later = launch(game);
-    expect(later.pierce).toBe(0);
+    expect(game.state.effects.pierce).toBe(3);
   });
 
-  test('貫通中的彈珠隨時間倒數', () => {
+  test('整場貫通期間新發射的彈珠也貫通：穿過磚塊不反彈', () => {
+    const game = newGame({ layout: () => [pathBrick(3), cornerBrick()] });
+    startPierce(game);
+    const later = launch(game);
+
+    runUntil(game, () => later.pos.y < 270);
+
+    expect(game.state.bricks.find((b) => b.id === 1)!.hp).toBe(2);
+    expect(later.vel.y).toBeLessThan(0);
+    expect(later.vel.x).toBe(0);
+  });
+
+  test('倒數隨時間減少，狀態裡只有一個倒數，彈珠沒有各自的貫通欄位', () => {
     const game = newGame();
     const marble = launch(game);
-    marble.pierce = 6;
+    startPierce(game);
 
     for (let i = 0; i < 60; i++) step(game);
 
-    expect(marble.pierce).toBeCloseTo(5, 1);
+    expect(game.state.effects.pierce).toBeCloseTo(2, 1);
+    expect('pierce' in marble).toBe(false);
   });
 
   test('貫通的彈珠穿過磚塊不反彈，硬磚只扣 1 血', () => {
     const game = newGame({ layout: () => [pathBrick(3), cornerBrick()] });
     const marble = launch(game);
-    marble.pierce = 6;
+    startPierce(game);
 
     runUntil(game, () => marble.pos.y < 270);
 
@@ -107,7 +120,7 @@ describe('貫通', () => {
   test('貫通的彈珠打穿 1 血的磚塊：照常得分並移除', () => {
     const game = newGame({ layout: () => [pathBrick(1), cornerBrick()] });
     const marble = launch(game);
-    marble.pierce = 6;
+    startPierce(game);
 
     runUntil(game, () => marble.pos.y < 270);
 
@@ -120,7 +133,7 @@ describe('貫通', () => {
     const column = [0, 1, 2].map((r) => ({ ...brickAt(376, 300 - r * 24, 1), id: r + 1 }));
     const game = newGame({ layout: () => [...column, cornerBrick()] });
     const marble = launch(game);
-    marble.pierce = 6;
+    startPierce(game);
 
     runUntil(game, () => marble.pos.y < 200);
 
@@ -132,7 +145,7 @@ describe('貫通', () => {
   test('貫通倒數歸零後，彈珠恢復碰到磚塊就反彈', () => {
     const game = newGame({ layout: () => [pathBrick(3), cornerBrick()] });
     const marble = launch(game);
-    marble.pierce = 0.01;
+    game.state.effects.pierce = 0.01;
 
     runUntil(game, () => marble.vel.y > 0);
 
@@ -144,7 +157,7 @@ describe('貫通', () => {
     const monster = monsterAt(400, 400, 10);
     const game = newGame({ monsters: () => [monster] });
     const marble = launch(game);
-    marble.pierce = 6;
+    game.state.effects.pierce = 20;
     const pinned = () => {
       // 怪物會緩慢遊走，固定在彈珠的路徑上才能檢查扣血次數。
       monster.pos.x = 400;
@@ -169,7 +182,7 @@ describe('貫通', () => {
     const monster = monsterAt(400, 400, 2);
     const game = newGame({ monsters: () => [monster] });
     const marble = launch(game);
-    marble.pierce = 6;
+    startPierce(game);
     const pin = () => {
       monster.pos.x = 400;
       monster.pos.y = 400;
@@ -187,25 +200,25 @@ describe('貫通', () => {
   test('貫通的彈珠仍然被牆與擋板反彈', () => {
     const game = newGame();
     const marble = launch(game);
-    marble.pierce = 6;
+    game.state.effects.pierce = 20;
 
     runUntil(game, () => marble.vel.y > 0);
     expect(marble.pos.y).toBeLessThan(20);
 
     runUntil(game, () => marble.vel.y < 0);
     expect(game.state.marbles).toHaveLength(1);
-    expect(marble.pierce).toBeGreaterThan(0);
+    expect(game.state.effects.pierce).toBeGreaterThan(0);
   });
 
   test('再接到貫通時重新計時，不疊加', () => {
     const game = newGame();
-    const marble = launch(game);
-    marble.pierce = 2;
+    launch(game);
+    game.state.effects.pierce = 1;
 
     placeOnPaddle(game, 'bottom', 'pierce');
     step(game);
 
-    expect(marble.pierce).toBe(6);
+    expect(game.state.effects.pierce).toBe(3);
   });
 
   test('同一批貫通只有第一個被接到的生效，其他玩家方位的同批道具消失', () => {
@@ -216,30 +229,50 @@ describe('貫通', () => {
 
     step(game);
 
-    expect(game.state.marbles.every((m) => m.pierce === 6)).toBe(true);
+    expect(game.state.effects.pierce).toBe(3);
     expect(game.state.powerUps).toHaveLength(0);
   });
 
-  test('多球分裂出的彈珠繼承原彈珠的貫通剩餘時間', () => {
-    const game = newGame();
-    const marble = launch(game);
-    marble.pierce = 4;
+  test('多球與環爆分裂出的彈珠在貫通期間同樣貫通，不需要繼承', () => {
+    const game = newGame({ layout: () => [pathBrick(9), cornerBrick()] });
+    launch(game);
+    startPierce(game);
 
     placeOnPaddle(game, 'bottom', 'multiball');
     step(game);
 
     expect(game.state.marbles).toHaveLength(3);
-    for (const m of game.state.marbles) expect(m.pierce).toBeGreaterThan(3.9);
+    // 三顆彈珠都在同一個整場倒數之下。
+    expect(game.state.effects.pierce).toBeGreaterThan(2.9);
+    for (const m of game.state.marbles) expect('pierce' in m).toBe(false);
   });
 
-  test('沒有貫通的彈珠分裂出的彈珠也沒有貫通', () => {
-    const game = newGame();
+  test('貫通期間才分裂出的彈珠一起穿過整排磚塊，不被反彈', () => {
+    const row = Array.from({ length: 10 }, (_, c) => ({ ...brickAt(160 + c * 48, 300, 9), id: c + 1 }));
+    const game = newGame({ layout: () => [...row, cornerBrick()] });
     launch(game);
-
+    startPierce(game);
     placeOnPaddle(game, 'bottom', 'multiball');
     step(game);
+    expect(game.state.marbles).toHaveLength(3);
 
-    expect(game.state.marbles.every((m) => m.pierce === 0)).toBe(true);
+    runUntil(game, () => game.state.marbles.every((m) => m.pos.y < 250), 3);
+
+    expect(game.state.marbles.every((m) => m.pos.y < 250 && m.vel.y < 0)).toBe(true);
+    expect(row.some((b) => game.state.bricks.find((x) => x.id === b.id)!.hp < 9)).toBe(true);
+  });
+
+  test('倒數結束後新發射的彈珠恢復碰到磚塊就反彈', () => {
+    const game = newGame({ layout: () => [pathBrick(9), cornerBrick()] });
+    game.state.effects.pierce = 0.05;
+    for (let i = 0; i < 10; i++) step(game);
+    expect(game.state.effects.pierce).toBe(0);
+
+    const later = launch(game);
+    runUntil(game, () => later.vel.y > 0);
+
+    expect(later.vel.y).toBeGreaterThan(0);
+    expect(game.state.bricks.find((b) => b.id === 1)!.hp).toBe(8);
   });
 });
 
@@ -289,7 +322,7 @@ describe('環爆', () => {
   test('分裂後場上彈珠總數不超過 100 顆，超過的不產生', () => {
     const game = newGame();
     for (let i = 0; i < 15; i++) {
-      game.state.marbles.push({ id: 500 + i, pos: { x: 300 + i * 10, y: 500 }, vel: { x: 0, y: -100 }, pierce: 0 });
+      game.state.marbles.push({ id: 500 + i, pos: { x: 300 + i * 10, y: 500 }, vel: { x: 0, y: -100 } });
     }
 
     placeOnPaddle(game, 'bottom', 'burst');
@@ -308,18 +341,6 @@ describe('環爆', () => {
     expect(game.state.marbles).toHaveLength(0);
     expect(game.state.pool).toBe(pool);
     expect(game.state.powerUps).toHaveLength(0);
-  });
-
-  test('分裂出的彈珠繼承原彈珠的貫通剩餘時間', () => {
-    const game = newGame();
-    const marble = launch(game);
-    marble.pierce = 3;
-
-    placeOnPaddle(game, 'bottom', 'burst');
-    step(game);
-
-    expect(game.state.marbles).toHaveLength(10);
-    for (const m of game.state.marbles) expect(m.pierce).toBeGreaterThan(2.9);
   });
 
   test('同一批環爆只有第一個被接到的生效', () => {
@@ -355,29 +376,43 @@ describe('道具權重', () => {
   }
 
   const share = (kinds: PowerUpKind[], kind: PowerUpKind) => kinds.filter((k) => k === kind).length / kinds.length;
+  const ALL_KINDS: PowerUpKind[] = ['multiball', 'supply', 'widen', 'pierce', 'burst', 'enlarge', 'heal', 'shorten', 'shrink'];
 
   test('大量抽選時，各種道具的比例落在權重預期的範圍內', () => {
     const kinds = dropKinds(1000);
 
     expect(kinds).toHaveLength(1000);
-    expect(share(kinds, 'multiball')).toBeGreaterThan(0.24);
-    expect(share(kinds, 'multiball')).toBeLessThan(0.36);
-    expect(share(kinds, 'supply')).toBeGreaterThan(0.19);
-    expect(share(kinds, 'supply')).toBeLessThan(0.31);
-    expect(share(kinds, 'widen')).toBeGreaterThan(0.19);
-    expect(share(kinds, 'widen')).toBeLessThan(0.31);
-    expect(share(kinds, 'pierce')).toBeGreaterThan(0.1);
-    expect(share(kinds, 'pierce')).toBeLessThan(0.2);
-    expect(share(kinds, 'burst')).toBeGreaterThan(0.02);
-    expect(share(kinds, 'burst')).toBeLessThan(0.09);
+    // 權重合計 130：多球 30、補給 25、加寬 25、貫通 15、放大 12、補血 8、環爆 5、縮短 5、縮小 5。
+    const within = (kind: PowerUpKind, lo: number, hi: number) => {
+      expect(share(kinds, kind)).toBeGreaterThan(lo);
+      expect(share(kinds, kind)).toBeLessThan(hi);
+    };
+    within('multiball', 0.18, 0.28);
+    within('supply', 0.14, 0.25);
+    within('widen', 0.14, 0.25);
+    within('pierce', 0.07, 0.16);
+    within('enlarge', 0.05, 0.14);
+    within('heal', 0.03, 0.1);
+    within('burst', 0.01, 0.07);
+    within('shorten', 0.01, 0.07);
+    within('shrink', 0.01, 0.07);
   });
 
-  test('多球是最常出現的道具，環爆是最少的', () => {
-    const kinds = dropKinds(600);
-    const counts = (['multiball', 'supply', 'widen', 'pierce', 'burst'] as const).map((k) => share(kinds, k));
+  test('nerf 約佔磚塊掉落的 8%', () => {
+    const kinds = dropKinds(1000);
+    const nerfs = share(kinds, 'shorten') + share(kinds, 'shrink');
 
-    expect(counts[0]).toBe(Math.max(...counts));
-    expect(counts[4]).toBe(Math.min(...counts));
+    expect(nerfs).toBeGreaterThan(0.04);
+    expect(nerfs).toBeLessThan(0.13);
+  });
+
+  test('多球是最常出現的道具，環爆與兩個 nerf 是最少的', () => {
+    const kinds = dropKinds(1000);
+    const rare = (['burst', 'shorten', 'shrink'] as const).map((k) => share(kinds, k));
+    const common = (['supply', 'widen', 'pierce'] as const).map((k) => share(kinds, k));
+
+    expect(share(kinds, 'multiball')).toBe(Math.max(...ALL_KINDS.map((k) => share(kinds, k))));
+    expect(Math.max(...rare)).toBeLessThan(Math.min(...common));
   });
 
   test('限定可掉落的種類時，只在限定的種類中抽選', () => {
@@ -389,9 +424,10 @@ describe('道具權重', () => {
     expect(kinds.some((k) => k === 'burst')).toBe(true);
   });
 
-  test('怪物血量門檻的必掉也依權重抽，種類多樣', () => {
-    const kinds = new Set<PowerUpKind>();
-    for (let seed = 1; seed <= 120; seed++) {
+  /** 怪物血量從 2 降到 1（跨過 66% 的門檻）的瞬間必掉一次，回傳每個種子掉出的種類。 */
+  function monsterDropKinds(seeds: number, opts: Partial<GameOptions> = {}): PowerUpKind[] {
+    const kinds: PowerUpKind[] = [];
+    for (let seed = 1; seed <= seeds; seed++) {
       const monster: Monster = { ...monsterAt(400, 560, 2), maxHp: 3 };
       const game = createGame({
         playerCount: 1,
@@ -399,12 +435,43 @@ describe('道具權重', () => {
         layout: () => [cornerBrick()],
         monsters: () => [monster],
         dropChance: 0,
+        ...opts,
       });
       launch(game);
       runUntil(game, () => game.state.powerUps.length > 0, 3);
-      if (game.state.powerUps[0]) kinds.add(game.state.powerUps[0].kind);
+      if (game.state.powerUps[0]) kinds.push(game.state.powerUps[0].kind);
     }
+    return kinds;
+  }
+
+  test('怪物血量門檻的必掉也依權重抽，種類多樣', () => {
+    const kinds = new Set(monsterDropKinds(120));
 
     expect(kinds.size).toBeGreaterThanOrEqual(4);
+  });
+
+  test('怪物必掉不包含 nerf：縮短擋板與縮小彈珠不會從怪物掉出', () => {
+    const kinds = monsterDropKinds(300);
+
+    expect(kinds.length).toBe(300);
+    expect(kinds.some((k) => k === 'shorten' || k === 'shrink')).toBe(false);
+    expect(kinds.some((k) => k === 'heal')).toBe(true);
+  });
+
+  test('怪物必掉只會抽到必掉清單內的種類（縮小的清單）', () => {
+    const kinds = monsterDropKinds(100, { monsterDropKinds: ['supply', 'burst'] });
+
+    expect(kinds.length).toBe(100);
+    expect(kinds.every((k) => k === 'supply' || k === 'burst')).toBe(true);
+    expect(kinds.some((k) => k === 'supply')).toBe(true);
+    expect(kinds.some((k) => k === 'burst')).toBe(true);
+  });
+
+  test('磚塊掉落與怪物必掉各用各的清單：限定磚塊清單不影響怪物，反之亦然', () => {
+    const brickOnly = dropKinds(100, { powerUpKinds: ['shrink'], monsterDropKinds: ['supply'] });
+    const monsterOnly = monsterDropKinds(100, { powerUpKinds: ['shrink'], monsterDropKinds: ['supply'] });
+
+    expect(brickOnly.every((k) => k === 'shrink')).toBe(true);
+    expect(monsterOnly.every((k) => k === 'supply')).toBe(true);
   });
 });

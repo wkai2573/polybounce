@@ -1,30 +1,31 @@
 import {
-  ARENA_SIZE,
   BURST_COUNT,
   MARBLE_FIELD_CAP,
+  MARBLE_SIZE_DURATION,
+  MAX_LIVES,
   MULTIBALL_SPREAD_DEG,
   PADDLE_THICKNESS,
   PIERCE_DURATION,
   POOL_CAP_PER_PLAYER,
-  POWERUP_DROP_CHANCE,
-  POWERUP_KINDS,
   POWERUP_RADIUS,
   POWERUP_SPEED,
-  POWERUP_WEIGHTS,
+  SHORTEN_DURATION,
   SUPPLY_AMOUNT,
   WIDEN_DURATION,
 } from '../config.ts';
+import { MONSTER_DROP_KINDS, POWERUP_DROP_CHANCE, POWERUP_KINDS, POWERUP_WEIGHTS } from '../drop-config.ts';
 import { along, depth, FRAMES } from '../geometry.ts';
-import { paddleWidth } from '../paddle.ts';
+import { alivePlayers, clampPaddle, paddleWidth } from '../paddle.ts';
 import { createRng } from '../rng.ts';
 import type { GameOptions, GameState, Marble, PlayerState, PowerUp, PowerUpKind, Vec2 } from '../types.ts';
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** 個人效果：各接各的。其餘都是全隊共用，同一批只有第一個被接到的生效。 */
+const PERSONAL_KINDS: ReadonlySet<PowerUpKind> = new Set(['widen', 'shorten', 'heal']);
 
 export interface Dropper {
-  /** 一定掉落：朝每位在場玩家的方位各掉一個、類型相同。 */
-  drop(pos: Vec2): void;
-  /** 依掉落機率決定要不要掉落。 */
+  /** 怪物血量降到門檻時一定掉落：從怪物必掉的種類中依權重抽，朝每位活著的玩家的方位各掉一個、類型相同。 */
+  dropForMonster(pos: Vec2): void;
+  /** 依掉落機率決定要不要掉落，從磚塊可掉落的種類中依權重抽。 */
   maybeDrop(pos: Vec2): void;
 }
 
@@ -32,12 +33,13 @@ export interface Dropper {
 export function createDropper(state: GameState, seed: number, options: GameOptions): Dropper {
   const rng = createRng(seed ^ 0x9e3779b9);
   const chance = options.dropChance ?? POWERUP_DROP_CHANCE;
-  const kinds = options.powerUpKinds ?? POWERUP_KINDS;
+  const brickKinds = options.powerUpKinds ?? POWERUP_KINDS;
+  const monsterKinds = options.monsterDropKinds ?? MONSTER_DROP_KINDS;
   let nextId = 0;
   let nextBatch = 0;
 
-  /** 依權重抽一種道具；沒有可抽的種類時回傳 undefined。 */
-  function pickKind(): PowerUpKind | undefined {
+  /** 依權重從 kinds 抽一種道具；沒有可抽的種類時回傳 undefined。 */
+  function pickKind(kinds: readonly PowerUpKind[]): PowerUpKind | undefined {
     const total = kinds.reduce((sum, k) => sum + POWERUP_WEIGHTS[k], 0);
     let roll = rng() * total;
     for (const kind of kinds) {
@@ -47,39 +49,37 @@ export function createDropper(state: GameState, seed: number, options: GameOptio
     return kinds[kinds.length - 1];
   }
 
-  function drop(pos: Vec2) {
-    const kind = pickKind();
+  /** 死亡玩家的方位沒人接得到，所以不掉。 */
+  function drop(pos: Vec2, kinds: readonly PowerUpKind[]) {
+    const kind = pickKind(kinds);
     if (!kind) return;
     const batch = nextBatch++;
-    for (const player of state.players) {
+    for (const player of alivePlayers(state)) {
       state.powerUps.push({ id: nextId++, batch, kind, side: player.side, pos: { x: pos.x, y: pos.y } });
     }
   }
 
   return {
-    drop,
+    dropForMonster: (pos) => drop(pos, monsterKinds),
     maybeDrop(pos) {
-      if (rng() < chance) drop(pos);
+      if (rng() < chance) drop(pos, brickKinds);
     },
   };
 }
 
-/** 道具階段：加寬倒數、道具飄向各自的方位，被該方位的擋板碰到就拾取，飄出場地就消失。 */
+/** 道具階段：擋板寬度效果倒數、道具飄向各自的方位，被該方位活著的玩家的擋板碰到就拾取，飄出場地就消失。 */
 export function createPowerUpStage(state: GameState, nextMarbleId: () => number) {
   function rotate(v: Vec2, deg: number): Vec2 {
     const a = (deg * Math.PI) / 180;
     return { x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a) };
   }
 
-  /**
-   * 場上每顆彈珠各自原地分裂出新的彈珠，速度大小不變，並繼承貫通剩餘秒數；
-   * 超過場上彈珠上限的就不產生。
-   */
+  /** 場上每顆彈珠各自原地分裂出新的彈珠，速度大小不變；超過場上彈珠上限的就不產生。 */
   function splitInto(degrees: number[]) {
     for (const m of state.marbles.slice()) {
       for (const deg of degrees) {
         if (state.marbles.length >= MARBLE_FIELD_CAP) return;
-        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg), pierce: m.pierce };
+        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg) };
         state.marbles.push(copy);
       }
     }
@@ -90,8 +90,13 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
   /** 原本那顆保留，另外新增的方向均勻分佈，所以一共 BURST_COUNT 顆、彼此間隔 360 / BURST_COUNT 度。 */
   const burst = () => splitInto(Array.from({ length: BURST_COUNT - 1 }, (_, i) => ((i + 1) * 360) / BURST_COUNT));
 
-  function pierce() {
-    for (const m of state.marbles) m.pierce = PIERCE_DURATION;
+  function setPaddleEffect(player: PlayerState, kind: 'widen' | 'shorten', left: number) {
+    player.paddleEffect = { kind, left };
+    clampPaddle(player);
+  }
+
+  function setMarbleSize(kind: 'enlarge' | 'shrink') {
+    state.effects.marbleSize = { kind, left: MARBLE_SIZE_DURATION };
   }
 
   function applyTo(player: PlayerState, powerUp: PowerUp) {
@@ -101,17 +106,24 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
         state.pool = Math.max(state.pool, Math.min(state.pool + SUPPLY_AMOUNT, cap));
         break;
       }
-      case 'widen': {
-        player.widen = WIDEN_DURATION;
-        const half = paddleWidth(player) / 2;
-        player.paddle = clamp(player.paddle, half, ARENA_SIZE - half);
+      case 'widen':
+        setPaddleEffect(player, 'widen', WIDEN_DURATION);
         break;
-      }
+      case 'shorten':
+        setPaddleEffect(player, 'shorten', SHORTEN_DURATION);
+        break;
+      case 'heal':
+        player.lives = Math.min(MAX_LIVES, player.lives + 1);
+        break;
       case 'multiball':
         split();
         break;
       case 'pierce':
-        pierce();
+        state.effects.pierce = PIERCE_DURATION;
+        break;
+      case 'enlarge':
+      case 'shrink':
+        setMarbleSize(powerUp.kind);
         break;
       case 'burst':
         burst();
@@ -125,8 +137,17 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
     return Math.abs(along(player.side, p.pos) - player.paddle) <= paddleWidth(player) / 2 + POWERUP_RADIUS;
   }
 
+  /** 死亡期間不倒數，所以屍體的寬度不會在原地變來變去。 */
+  function tickPaddleEffects(dt: number) {
+    for (const player of state.players) {
+      if (player.dead || !player.paddleEffect) continue;
+      player.paddleEffect.left -= dt;
+      if (player.paddleEffect.left <= 0) player.paddleEffect = null;
+    }
+  }
+
   return function advancePowerUps(dt: number) {
-    for (const player of state.players) player.widen = Math.max(0, player.widen - dt);
+    tickPaddleEffects(dt);
 
     const gone = new Set<number>();
     for (const p of state.powerUps) {
@@ -136,14 +157,13 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
       p.pos.y -= normal.y * POWERUP_SPEED * dt;
 
       const player = state.players.find((q) => q.side === p.side);
-      if (player && touches(player, p)) {
+      if (player && !player.dead && touches(player, p)) {
         gone.add(p.id);
         applyTo(player, p);
-        // 補給、多球、貫通與環爆是全隊共用的效果，同一批只有第一個被接到的生效；加寬各自接各自的。
-        if (p.kind !== 'widen') {
+        if (!PERSONAL_KINDS.has(p.kind)) {
           for (const other of state.powerUps) if (other.batch === p.batch) gone.add(other.id);
         }
-      } else if (!player || depth(p.side, p.pos) < -POWERUP_RADIUS) {
+      } else if (!player || player.dead || depth(p.side, p.pos) < -POWERUP_RADIUS) {
         gone.add(p.id);
       }
     }

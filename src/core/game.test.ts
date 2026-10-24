@@ -12,6 +12,7 @@ describe('開局狀態', () => {
     expect(state.status).toBe('playing');
     expect(state.level).toBe(1);
     expect(state.score).toBe(0);
+    expect(state.players[0]!.lives).toBe(3);
     expect(state.pool).toBe(10);
     expect(state.marbles).toHaveLength(0);
     expect(state.bricks.length).toBeGreaterThan(0);
@@ -550,16 +551,16 @@ describe('子彈', () => {
     expect([...directions].sort()).toEqual(['bottom', 'top']);
   });
 
-  test('子彈穿過磚塊：磚塊不受損，子彈照常飛到擋板並凍結玩家', () => {
+  test('子彈穿過磚塊：磚塊不受損，子彈照常飛到核心並使玩家扣一點生命', () => {
     const wall = Array.from({ length: 10 }, (_, c) => ({ ...brickAt(160 + c * 48, 640), id: c }));
     const game = createGame({ playerCount: 1, seed: 1, layout: () => wall, monsters: () => [monsterAt(400, 400)] });
 
     runUntil(game, () => game.state.bullets.some((b) => b.pos.y > 660), at(400));
     expect(game.state.bullets).toHaveLength(1);
 
-    runUntil(game, () => game.state.players[0]!.frozen > 0, at(400));
+    runUntil(game, () => game.state.players[0]!.lives < 3, at(400));
 
-    expect(game.state.players[0]!.frozen).toBe(1);
+    expect(game.state.players[0]!.lives).toBe(2);
     expect(game.state.bullets).toHaveLength(0);
     expect(game.state.bricks).toHaveLength(10);
     expect(game.state.bricks.every((b) => b.hp === 1)).toBe(true);
@@ -573,93 +574,75 @@ describe('子彈', () => {
     expect(game.state.bullets[0]!.source).toBe('monster');
   });
 
-  test('子彈沒碰到擋板就飛出場地消失，不會凍結玩家', () => {
+  test('子彈沒碰到核心就飛出場地消失，不會扣血', () => {
     const game = lone();
     run(game, 5.1, at(400));
     expect(game.state.bullets).toHaveLength(1);
 
     for (let t = 0; t < 4; t += 1 / 60) {
       game.step(1 / 60, [at(700)]);
-      expect(game.state.players[0]!.frozen).toBe(0);
+      expect(game.state.players[0]!.lives).toBe(3);
     }
 
     expect(game.state.bullets).toHaveLength(0);
   });
 });
 
-describe('凍結', () => {
+describe('核心受擊', () => {
   const newLone = () =>
     createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [monsterAt(400, 500)] });
-  const frozenOf = (game: Game, i = 0) => game.state.players[i]!.frozen;
+  const livesOf = (game: Game, i = 0) => game.state.players[i]!.lives;
 
   function hitOnce() {
     const game = newLone();
-    runUntil(game, () => frozenOf(game) > 0, at(400));
+    runUntil(game, () => livesOf(game) < 3, at(400));
     return game;
   }
 
-  test('子彈打到擋板，該玩家凍結 1 秒，子彈消失', () => {
+  test('子彈打到核心，該玩家扣 1 點生命，子彈消失', () => {
     const game = hitOnce();
 
-    expect(frozenOf(game)).toBe(1);
+    expect(livesOf(game)).toBe(2);
     expect(game.state.bullets).toHaveLength(0);
+    expect(game.state.players[0]!.dead).toBe(false);
   });
 
-  test('凍結期間擋板不能移動，1 秒後恢復', () => {
+  test('受傷後擋板照樣可以移動，沒有凍結', () => {
     const game = hitOnce();
 
-    run(game, 0.9, at(700));
-    expect(game.state.players[0]!.paddle).toBe(400);
+    game.step(1 / 60, [at(700)]);
 
-    run(game, 0.2, at(700));
     expect(game.state.players[0]!.paddle).toBe(700);
-    expect(frozenOf(game)).toBe(0);
   });
 
-  test('凍結期間仍然可以進入瞄準模式', () => {
+  test('受傷後仍然可以進入瞄準模式與發射彈珠', () => {
     const game = hitOnce();
 
     game.step(1 / 60, [leftClick(400, 400)]);
-
     expect(game.state.players[0]!.aiming).toBe(true);
-  });
 
-  test('凍結期間仍然可以發射彈珠', () => {
-    const game = hitOnce();
-
-    game.step(1 / 60, [rightClick(400)]);
-
+    game.step(1 / 60, [leftClick(400, 400)]);
     expect(game.state.pool).toBe(9);
     expect(game.state.marbles).toHaveLength(1);
   });
 
-  test('凍結期間再被擊中，凍結時間重新計為 1 秒，不延長', () => {
-    // 兩隻怪物同時發射，下方那隻的子彈先到，另一發約 0.35 秒後才到。
-    const game = createGame({
-      playerCount: 1,
-      seed: 1,
-      layout: cornerLayout,
-      monsters: () => [monsterAt(400, 560), { ...monsterAt(400, 490), id: 1 }],
-    });
-    run(game, 4.9, at(400));
-    game.state.monsters[0]!.pos = { x: 400, y: 560 };
-    game.state.monsters[1]!.pos = { x: 400, y: 490 };
-    runUntil(game, () => frozenOf(game) > 0, at(400));
+  test('受傷有 1.5 秒無敵，之後倒數歸零', () => {
+    const game = hitOnce();
 
-    run(game, 0.5, at(400));
+    expect(game.state.players[0]!.invincible).toBeGreaterThan(1.4);
+    expect(game.state.players[0]!.invincible).toBeLessThanOrEqual(1.5);
 
-    // 沒有重新計時會剩 0.5，延長則會超過 1。
-    expect(frozenOf(game)).toBeGreaterThan(0.7);
-    expect(frozenOf(game)).toBeLessThan(0.95);
+    run(game, 1.6, at(400));
+    expect(game.state.players[0]!.invincible).toBe(0);
   });
 
-  test('凍結不影響其他玩家', () => {
+  test('生命只影響被打到的玩家', () => {
     for (let seed = 1; seed <= 5; seed++) {
       const game = createGame({ playerCount: 2, seed, layout: cornerLayout, monsters: () => [monsterAt(400, 400)] });
 
-      runUntil(game, () => game.state.players.some((p) => p.frozen > 0), at(400));
+      runUntil(game, () => game.state.players.some((p) => p.lives < 3), at(400));
 
-      expect(game.state.players.filter((p) => p.frozen > 0)).toHaveLength(1);
+      expect(game.state.players.filter((p) => p.lives < 3)).toHaveLength(1);
     }
   });
 });

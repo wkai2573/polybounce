@@ -617,6 +617,76 @@ describe('從本關接關', () => {
   });
 });
 
+describe('生命、屍體與整場效果的同步', () => {
+  /** 兩人局，每一步都送狀態；玩家端是上方。 */
+  function twoPlayers() {
+    const host = newHost({ sendInterval: DT });
+    const guest = join(host);
+    host.start();
+    return { host, guest };
+  }
+
+  test('玩家端收到的生命、無敵、死亡與屍體復活進度與房主一致', () => {
+    const { host, guest } = twoPlayers();
+    const [bottom, top] = host.state!.players;
+    bottom!.lives = 2;
+    bottom!.invincible = 1.2;
+    top!.lives = 0;
+    top!.dead = true;
+    top!.revive = 3;
+
+    host.advance(DT);
+
+    const seen = guest.state!.players;
+    expect(seen.find((p) => p.side === 'bottom')).toMatchObject({ lives: 2, dead: false });
+    expect(seen.find((p) => p.side === 'bottom')!.invincible).toBeGreaterThan(1);
+    expect(seen.find((p) => p.side === 'top')).toMatchObject({ lives: 0, dead: true, revive: 3 });
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('玩家端收到的整場效果與擋板寬度效果與房主一致，彈珠的資料不再含貫通欄位', () => {
+    const { host, guest } = twoPlayers();
+    host.setLocalInput(rightClick(300));
+    host.state!.effects.pierce = 2.5;
+    host.state!.effects.marbleSize = { kind: 'shrink', left: 4 };
+    host.state!.players[1]!.paddleEffect = { kind: 'shorten', left: 3 };
+
+    host.advance(DT);
+
+    expect(guest.state!.effects.pierce).toBeGreaterThan(2.4);
+    expect(guest.state!.effects.marbleSize).toMatchObject({ kind: 'shrink' });
+    expect(guest.state!.players[1]!.paddleEffect).toMatchObject({ kind: 'shorten' });
+    expect(guest.state!.marbles).toHaveLength(1);
+    expect(Object.keys(guest.state!.marbles[0]!).sort()).toEqual(['id', 'pos', 'vel']);
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('房主端被子彈打到之後，玩家端看到同樣的生命與無敵', () => {
+    const { host, guest } = twoPlayers();
+    host.state!.bullets.push({ id: 1, pos: { x: 400, y: 790 }, vel: { x: 0, y: 0 }, source: 'monster' });
+
+    host.advance(DT);
+
+    expect(host.state!.players[0]!.lives).toBe(2);
+    expect(guest.state!.players[0]!.lives).toBe(2);
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('死亡的玩家的輸入被忽略，其他玩家照常', () => {
+    const { host, guest } = twoPlayers();
+    const top = host.state!.players[1]!;
+    top.lives = 0;
+    top.dead = true;
+
+    guest.sendInput(at(250));
+    host.setLocalInput(at(500));
+    host.advance(DT);
+
+    expect(host.state!.players[0]!.paddle).toBe(500);
+    expect(top.paddle).toBe(400);
+  });
+});
+
 describe('傳輸層與核心分離', () => {
   test('玩家端的型別只持有收到的狀態，沒有遊戲核心', () => {
     const host = newHost();

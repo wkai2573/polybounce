@@ -17,6 +17,7 @@ import {
   PADDLE_THICKNESS,
 } from '../config.ts';
 import { pointAt } from '../geometry.ts';
+import { alivePlayers } from '../paddle.ts';
 import type { GameState, Monster, Vec2 } from '../types.ts';
 
 /** 射出一發 BOSS 的子彈；場上子彈已達上限時由呼叫端略過，所以這裡不必處理。 */
@@ -62,7 +63,8 @@ export function createBarrageStage(state: GameState, rng: () => number, shoot: B
   }
 
   function fireFan(boss: Monster) {
-    const target = state.players[Math.floor(rng() * state.players.length)];
+    const candidates = alivePlayers(state);
+    const target = candidates[Math.floor(rng() * candidates.length)];
     if (!target) return;
     const goal = pointAt(target.side, target.paddle, PADDLE_THICKNESS / 2);
     const center = Math.atan2(goal.y - boss.pos.y, goal.x - boss.pos.x);

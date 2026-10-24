@@ -273,119 +273,133 @@ describe('BOSS 彈幕：子彈上限與其他規則', () => {
   });
 });
 
-describe('BOSS 子彈的凍結規則', () => {
+describe('子彈打到核心', () => {
   const quiet = () => newGame(() => []);
 
-  function shoot(game: Game, source: BulletSource, y = 776) {
-    game.state.bullets.push({ id: 5000 + game.state.bullets.length, pos: { x: 400, y }, vel: { x: 0, y: 60 }, source });
+  function shoot(game: Game, source: BulletSource, x = 400, y = 776) {
+    game.state.bullets.push({ id: 5000 + game.state.bullets.length, pos: { x, y }, vel: { x: 0, y: 60 }, source });
   }
 
-  function runUntilGone(game: Game, seconds = 2) {
-    for (let t = 0; t < seconds && game.state.bullets.length > 0; t += DT) step(game);
+  function runUntilGone(game: Game, seconds = 2, x = 400) {
+    for (let t = 0; t < seconds && game.state.bullets.length > 0; t += DT) step(game, x);
   }
 
   const player = (game: Game) => game.state.players[0]!;
 
-  test('BOSS 的子彈打到擋板，該玩家凍結 0.5 秒，子彈消失', () => {
+  test('BOSS 的子彈打到核心，該玩家扣 1 點生命，子彈消失', () => {
     const game = quiet();
     shoot(game, 'boss');
 
     runUntilGone(game);
 
     expect(game.state.bullets).toHaveLength(0);
-    expect(player(game).frozen).toBeGreaterThan(0.45);
-    expect(player(game).frozen).toBeLessThanOrEqual(0.5);
+    expect(player(game).lives).toBe(2);
   });
 
-  test('凍結期間再被 BOSS 的子彈打到，凍結剩餘時間不重新計時，子彈消失', () => {
+  test('一般怪物與 BOSS 的子彈都固定扣 1 點生命', () => {
+    for (const source of ['monster', 'boss'] as const) {
+      const game = quiet();
+      shoot(game, source);
+
+      runUntilGone(game);
+
+      expect(player(game).lives).toBe(2);
+    }
+  });
+
+  test('受傷後 1.5 秒內無敵：子彈穿過核心，不扣血也不消失', () => {
     const game = quiet();
     shoot(game, 'boss');
     runUntilGone(game);
-    for (let i = 0; i < 12; i++) step(game);
-    const remaining = player(game).frozen;
-    expect(remaining).toBeGreaterThan(0.1);
-    expect(remaining).toBeLessThan(0.4);
-
-    shoot(game, 'boss');
-    runUntilGone(game);
-
-    expect(game.state.bullets).toHaveLength(0);
-    expect(player(game).frozen).toBeLessThan(remaining);
-  });
-
-  test('解凍後 1 秒內無敵：BOSS 的子彈穿過擋板，不凍結、不消失', () => {
-    const game = quiet();
-    shoot(game, 'boss');
-    runUntilGone(game);
-    for (let i = 0; i < 40 && player(game).frozen > 0; i++) step(game);
-    expect(player(game).frozen).toBe(0);
-    expect(player(game).invincible).toBeGreaterThan(0.9);
+    expect(player(game).invincible).toBeGreaterThan(1.4);
 
     shoot(game, 'boss');
     const bullet = game.state.bullets[0]!;
     let passed = false;
     for (let i = 0; i < 40 && game.state.bullets.length > 0; i++) {
       step(game);
-      expect(player(game).frozen).toBe(0);
+      expect(player(game).lives).toBe(2);
       if (bullet.pos.y > 801) passed = true;
     }
 
     expect(passed).toBe(true);
   });
 
-  test('無敵結束後，BOSS 的子彈又會凍結玩家', () => {
+  test('無敵結束後，子彈又會扣血', () => {
     const game = quiet();
     shoot(game, 'boss');
     runUntilGone(game);
-    for (let i = 0; i < 40 && player(game).frozen > 0; i++) step(game);
-    for (let i = 0; i < 70; i++) step(game);
+    for (let i = 0; i < 100; i++) step(game);
     expect(player(game).invincible).toBe(0);
 
-    shoot(game, 'boss');
+    shoot(game, 'monster');
     runUntilGone(game);
 
-    expect(player(game).frozen).toBeGreaterThan(0.4);
+    expect(player(game).lives).toBe(1);
   });
 
-  test('一般怪物的子彈維持舊規則：凍結 1 秒，凍結中再被打到重新計時', () => {
+  test('子彈穿過擋板本身：打到核心以外的部分不扣血、不消失', () => {
+    // 擋板中心 400、半寬 60：x=440 在擋板上，但離核心（392 到 408）夠遠。
     const game = quiet();
-    shoot(game, 'monster');
-    runUntilGone(game);
-    expect(player(game).frozen).toBeGreaterThan(0.95);
-    for (let i = 0; i < 30; i++) step(game);
-    expect(player(game).frozen).toBeLessThan(0.55);
+    shoot(game, 'monster', 440);
+    const bullet = game.state.bullets[0]!;
 
-    shoot(game, 'monster');
-    runUntilGone(game);
+    let passed = false;
+    for (let i = 0; i < 120 && game.state.bullets.length > 0; i++) {
+      step(game);
+      expect(player(game).lives).toBe(3);
+      if (bullet.pos.y > 801) passed = true;
+    }
 
-    expect(player(game).frozen).toBeGreaterThan(0.95);
+    expect(passed).toBe(true);
   });
 
-  test('一般怪物的子彈不受 BOSS 的無敵影響', () => {
-    const game = quiet();
-    shoot(game, 'boss');
-    runUntilGone(game);
-    for (let i = 0; i < 40 && player(game).frozen > 0; i++) step(game);
-    expect(player(game).invincible).toBeGreaterThan(0.5);
-
-    shoot(game, 'monster');
-    runUntilGone(game);
-
-    expect(game.state.bullets).toHaveLength(0);
-    expect(player(game).frozen).toBeGreaterThan(0.95);
-  });
-
-  test('BOSS 子彈的半徑 4 比一般子彈的 5 小：擦過擋板邊緣的距離不同', () => {
-    // 子彈從擋板右緣外側 4.5 格處飛過：半徑 4 的 BOSS 子彈擦不到，半徑 5 的一般子彈會碰到。
-    const edge = 400 + 60 + 4.5;
-    const pass = (source: BulletSource) => {
+  test('一般怪物的子彈半徑 8：擦過核心邊緣 7.5 會碰到，8.5 擦不到', () => {
+    const lives = (offset: number) => {
       const game = quiet();
-      game.state.bullets.push({ id: 1, pos: { x: edge, y: 776 }, vel: { x: 0, y: 60 }, source });
+      shoot(game, 'monster', 408 + offset);
       runUntilGone(game);
-      return game.state.players[0]!.frozen;
+      return player(game).lives;
     };
 
-    expect(pass('boss')).toBe(0);
-    expect(pass('monster')).toBeGreaterThan(0);
+    expect(lives(7.5)).toBe(2);
+    expect(lives(8.5)).toBe(3);
+  });
+
+  test('BOSS 的子彈半徑 6，比一般怪物的小：擦過核心邊緣 5.5 會碰到，6.5 擦不到', () => {
+    const lives = (offset: number) => {
+      const game = quiet();
+      shoot(game, 'boss', 408 + offset);
+      runUntilGone(game);
+      return player(game).lives;
+    };
+
+    expect(lives(5.5)).toBe(2);
+    expect(lives(6.5)).toBe(3);
+  });
+
+  test('核心的大小不隨擋板加寬而改變', () => {
+    const lives = (offset: number) => {
+      const game = quiet();
+      game.state.players[0]!.paddleEffect = { kind: 'widen', left: 10 };
+      shoot(game, 'monster', 408 + offset);
+      runUntilGone(game);
+      return player(game).lives;
+    };
+
+    expect(lives(7.5)).toBe(2);
+    expect(lives(8.5)).toBe(3);
+  });
+
+  test('核心跟著擋板移動', () => {
+    const game = quiet();
+    step(game, 200);
+    shoot(game, 'monster', 400);
+    runUntilGone(game, 2, 200);
+    expect(player(game).lives).toBe(3);
+
+    shoot(game, 'monster', 200);
+    runUntilGone(game, 2, 200);
+    expect(player(game).lives).toBe(2);
   });
 });
