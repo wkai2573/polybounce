@@ -32,25 +32,6 @@ export function depth(side: Side, p: Vec2): number {
   }
 }
 
-/**
- * 從 from 瞄向 target 的單位方向。方向與該邊表面的夾角不得小於 minAngleDeg，
- * 所以指標在表面以下或太貼近表面時，都會被夾到最小角度。
- */
-export function aimDirection(side: Side, from: Vec2, target: Vec2, minAngleDeg: number): Vec2 {
-  const { normal, tangent } = FRAMES[side];
-  const dx = target.x - from.x;
-  const dy = target.y - from.y;
-  const n = dx * normal.x + dy * normal.y;
-  const t = dx * tangent.x + dy * tangent.y;
-  const maxAngle = ((90 - minAngleDeg) * Math.PI) / 180;
-  const angle = n > 0 || t !== 0 ? Math.atan2(t, n) : 0;
-  const clamped = Math.max(-maxAngle, Math.min(maxAngle, angle));
-  return {
-    x: normal.x * Math.cos(clamped) + tangent.x * Math.sin(clamped),
-    y: normal.y * Math.cos(clamped) + tangent.y * Math.sin(clamped),
-  };
-}
-
 /** along 與 depth 的反運算。 */
 export function pointAt(side: Side, a: number, d: number): Vec2 {
   switch (side) {

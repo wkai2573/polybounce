@@ -1,4 +1,4 @@
-import { MARBLE_SIZE_DURATION, PIERCE_DURATION, SHORTEN_DURATION, WIDEN_DURATION } from '../core/config.ts';
+import { PIERCE_DURATION, SHORTEN_DURATION, WIDEN_DURATION } from '../core/config.ts';
 import type { GameState, PowerUpKind, Side } from '../core/types.ts';
 import { POWERUP_STYLE } from './palette.ts';
 
@@ -31,14 +31,12 @@ const row = (kind: PowerUpKind, label: string, left: number, duration: number): 
 });
 
 /**
- * 從遊戲狀態推導效果面板：全隊區是整場效果（貫通、彈珠大小），各玩家區依座位順序列出擋板的加寬或縮短。
+ * 從遊戲狀態推導效果面板：全隊區是整場效果（目前只有貫通），各玩家區依座位順序列出擋板的加寬或縮短。
  * 只列出生效中的效果。死亡玩家的個人效果照列，剩餘時間本來就不倒數。localSide 是本機玩家的方位。
  */
 export function deriveEffectPanel(state: GameState, localSide: Side | null): EffectPanel {
   const team: EffectRow[] = [];
   if (state.effects.pierce > 0) team.push(row('pierce', '貫通', state.effects.pierce, PIERCE_DURATION));
-  const size = state.effects.marbleSize;
-  if (size) team.push(row(size.kind, size.kind === 'enlarge' ? '放大彈珠' : '縮小彈珠', size.left, MARBLE_SIZE_DURATION));
 
   const players: PlayerEffectRow[] = [];
   for (const p of state.players) {

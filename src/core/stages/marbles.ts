@@ -21,7 +21,7 @@ function createWallCollider(state: GameState): MarbleCollider {
   }
 
   return (m) => {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     for (const side of SIDE_ORDER) {
       if (!isWall(state.players, side)) continue;
       const { normal } = FRAMES[side];
@@ -46,7 +46,7 @@ function createWallCollider(state: GameState): MarbleCollider {
  */
 function createPaddleCollider(state: GameState): MarbleCollider {
   return (m) => {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     for (const player of state.players) {
       if (player.dead) continue;
       const halfWidth = paddleWidth(player) / 2;
@@ -64,6 +64,7 @@ function createPaddleCollider(state: GameState): MarbleCollider {
       m.vel.y = (normal.y * Math.cos(angle) + tangent.y * Math.sin(angle)) * speed;
       m.pos.x += normal.x * (line - after);
       m.pos.y += normal.y * (line - after);
+      m.power += 1;
     }
   };
 }
@@ -76,7 +77,7 @@ export function createMarbleStage(state: GameState, extraColliders: MarbleCollid
   const colliders = [createWallCollider(state), createPaddleCollider(state), ...extraColliders];
 
   function moveMarble(m: Marble, dt: number) {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     const travel = Math.hypot(m.vel.x, m.vel.y) * dt;
     // 切成小段移動，避免高速時穿過薄的障礙物；彈珠越小，每段越短。
     const slices = Math.max(1, Math.ceil(travel / (radius / 2)));
@@ -91,17 +92,13 @@ export function createMarbleStage(state: GameState, extraColliders: MarbleCollid
 
   /** 彈珠整顆越過有活著的玩家的那一邊，就是漏接。死亡玩家的方位是牆，不會漏。 */
   function hasLeft(m: Marble) {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     return state.players.some((p) => !p.dead && depth(p.side, m.pos) < -radius);
   }
 
   function tickEffects(dt: number) {
     const { effects } = state;
     effects.pierce = Math.max(0, effects.pierce - dt);
-    if (effects.marbleSize) {
-      effects.marbleSize.left -= dt;
-      if (effects.marbleSize.left <= 0) effects.marbleSize = null;
-    }
   }
 
   return function advanceMarbles(dt: number) {

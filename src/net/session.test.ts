@@ -6,8 +6,8 @@ import { createChannelPair } from './memory-channel.ts';
 import { roundForWire } from './protocol.ts';
 
 /** 預設把指標放在下方玩家自己那一邊的邊緣（y = 800），擋板深度為零。 */
-const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, fire: false });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 const DT = 1 / 60;
 
 /** 躲在角落的硬磚，讓關卡不會被彈珠意外清空。 */
@@ -75,14 +75,14 @@ describe('大廳', () => {
 });
 
 describe('開局', () => {
-  test('依加入順序分配下、上、左、右，彈珠池是人數乘以 10', () => {
+  test('依加入順序分配下、上、左、右，每位玩家的發射量是滿的', () => {
     const host = newHost();
     const guests = [join(host), join(host), join(host)];
 
     host.start();
 
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'top', 'left', 'right']);
-    expect(host.state!.pool).toBe(40);
+    expect(host.state!.players.map((p) => p.charge)).toEqual([5, 5, 5, 5]);
     expect(guests.map((g) => g.side)).toEqual(['top', 'left', 'right']);
     expect(host.localSide).toBe('bottom');
   });
@@ -131,22 +131,25 @@ describe('房主權威', () => {
     host.start();
     const before = JSON.stringify(guest.state);
 
-    guest.sendInput(rightClick(300));
+    guest.sendInput(fireAt(300));
 
     expect(JSON.stringify(guest.state)).toBe(before);
     expect(host.state!.marbles).toHaveLength(0);
   });
 
-  test('玩家的按鍵是邊緣訊號：一次右鍵只發射一顆，即使房主推進很多步', () => {
+  test('玩家的按鍵是邊緣訊號：一次左鍵只發射一顆，即使房主推進很多步', () => {
     const host = newHost();
     const guest = join(host);
     host.start();
 
-    guest.sendInput(rightClick(300));
+    guest.sendInput(fireAt(300));
     advance(host, 0.5);
 
     expect(host.state!.marbles).toHaveLength(1);
-    expect(host.state!.pool).toBe(19);
+    // 只射出一顆：玩家端的發射量只少了一顆多一點（之後有恢復），房主沒有動。
+    expect(host.state!.players[1]!.charge).toBeGreaterThan(4);
+    expect(host.state!.players[1]!.charge).toBeLessThan(5);
+    expect(host.state!.players[0]!.charge).toBe(5);
   });
 
   test('點擊與同一步的後續移動不會被併在一起：發射用點擊當下的位置', () => {
@@ -154,7 +157,7 @@ describe('房主權威', () => {
     const guest = join(host);
     host.start();
 
-    guest.sendInput(rightClick(300));
+    guest.sendInput(fireAt(300));
     guest.sendInput(at(700));
     host.advance(DT);
 
@@ -182,8 +185,8 @@ describe('房主權威', () => {
     host.addPeer(hostEnd);
     host.start();
 
-    client.send({ type: 'input', input: { pointer: { x: Number.NaN, y: 0 }, primary: false, secondary: false } });
-    client.send({ type: 'input', input: { pointer: { x: 'x' as unknown as number, y: 0 }, primary: true, secondary: false } });
+    client.send({ type: 'input', input: { pointer: { x: Number.NaN, y: 0 }, fire: false } });
+    client.send({ type: 'input', input: { pointer: { x: 'x' as unknown as number, y: 0 }, fire: true } });
     client.send({ type: 'input' } as never);
     host.advance(DT);
 
@@ -194,13 +197,13 @@ describe('房主權威', () => {
     const host = newHost();
 
     host.start();
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
 
     expect(host.playerCount).toBe(1);
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom']);
     expect(host.state!.marbles).toHaveLength(1);
-    expect(host.state!.pool).toBe(9);
+    expect(host.state!.players[0]!.charge).toBeLessThan(5);
   });
 
   test('狀態不會每一步都送，依送出間隔節流', () => {
@@ -210,7 +213,7 @@ describe('房主權威', () => {
     const received: number[] = [];
     guest.onChange(() => received.push(guest.state!.marbles.length));
 
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     for (let i = 0; i < 5; i++) host.advance(DT);
 
     expect(received.length).toBeLessThan(5);
@@ -222,7 +225,7 @@ describe('暫停', () => {
     const host = newHost({ sendInterval: DT });
     const guest = join(host);
     host.start();
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
     const y = host.state!.marbles[0]!.pos.y;
 
@@ -245,7 +248,7 @@ describe('暫停', () => {
     host.start();
     host.setPaused(true);
 
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
     host.setPaused(false);
     host.advance(DT);
@@ -267,20 +270,20 @@ describe('暫停', () => {
 });
 
 describe('斷線', () => {
-  test('玩家中途斷線，他的方位變成牆，其他人與彈珠池不受影響', () => {
+  test('玩家中途斷線，他的方位變成牆，其他人不受影響', () => {
     const host = newHost({ sendInterval: DT });
     const a = join(host);
     const b = join(host);
     host.start();
-    host.setLocalInput(rightClick(400));
+    host.setLocalInput(fireAt(400));
     host.advance(DT);
-    const pool = host.state!.pool;
+    const charge = host.state!.players[0]!.charge;
 
     a.leave();
     host.advance(DT);
 
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'left']);
-    expect(host.state!.pool).toBe(pool);
+    expect(host.state!.players[0]!.charge).toBeGreaterThanOrEqual(charge);
     expect(host.state!.status).toBe('playing');
     expect(b.state!.players.map((p) => p.side)).toEqual(['bottom', 'left']);
     expect(b.side).toBe('left');
@@ -305,7 +308,7 @@ describe('斷線', () => {
     host.start();
     a.leave();
 
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
 
     expect(host.playerCount).toBe(1);
@@ -333,19 +336,19 @@ describe('斷線', () => {
 });
 
 describe('再來一局', () => {
-  test('房主重開：同樣的人與方位，從第 1 關開始，彈珠池補滿', () => {
+  test('房主重開：同樣的人與方位，從第 1 關開始，發射量補滿', () => {
     const host = newHost();
     const guest = join(host);
     host.start();
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
-    expect(host.state!.pool).toBe(19);
+    expect(host.state!.players[0]!.charge).toBeLessThan(5);
 
     host.restart();
 
     expect(host.state!.level).toBe(1);
     expect(host.state!.score).toBe(0);
-    expect(host.state!.pool).toBe(20);
+    expect(host.state!.players.map((p) => p.charge)).toEqual([5, 5]);
     expect(host.state!.marbles).toHaveLength(0);
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'top']);
     expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
@@ -362,23 +365,20 @@ describe('再來一局', () => {
     host.restart();
 
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'left']);
-    expect(host.state!.pool).toBe(20);
+    expect(host.state!.players.map((p) => p.charge)).toEqual([5, 5]);
   });
 
   test('失敗時所有人都收到失敗的狀態，包含關卡與分數', () => {
     const host = newHost({ sendInterval: 1 });
     const guest = join(host);
     host.start();
-    // 兩位玩家各把彈珠池用完，並讓擋板離開彈珠的路線。
-    for (let i = 0; i < 10; i++) {
-      host.setLocalInput(rightClick(100));
-      guest.sendInput(rightClick(100));
-      host.advance(DT);
+    // 兩位玩家都死亡就是失敗。
+    for (const p of host.state!.players) {
+      p.dead = true;
+      p.lives = 0;
     }
-    host.setLocalInput(at(700));
-    guest.sendInput(at(700));
 
-    for (let t = 0; t < 120 && host.state!.status !== 'defeated'; t += DT) host.advance(DT);
+    host.advance(DT);
 
     expect(host.state!.status).toBe('defeated');
     expect(guest.state!.status).toBe('defeated');
@@ -386,17 +386,13 @@ describe('再來一局', () => {
   });
 });
 
-/** 讓每位玩家把彈珠池用完並讓擋板離開，直到全隊失敗。 */
-function playUntilDefeated(host: HostSession, guests: ClientSession[] = []) {
-  const pool = host.state!.pool;
-  for (let i = 0; i < pool; i++) {
-    host.setLocalInput(rightClick(100));
-    for (const g of guests) g.sendInput(rightClick(100));
-    host.advance(DT);
+/** 讓所有玩家死亡，全隊失敗。 */
+function playUntilDefeated(host: HostSession, _guests: ClientSession[] = []) {
+  for (const p of host.state!.players) {
+    p.dead = true;
+    p.lives = 0;
   }
-  host.setLocalInput(at(700));
-  for (const g of guests) g.sendInput(at(700));
-  for (let t = 0; t < 120 && host.state!.status !== 'defeated'; t += DT) host.advance(DT);
+  host.advance(DT);
 }
 
 describe('大廳選關', () => {
@@ -478,7 +474,7 @@ describe('大廳選關', () => {
     expect(b.startLevel).toBe(9);
   });
 
-  test('房主按開始後，全隊從所選關卡開始，彈珠池依當時的人數補滿，雙方狀態一致', () => {
+  test('房主按開始後，全隊從所選關卡開始，每位玩家的發射量補滿，雙方狀態一致', () => {
     const host = newHost();
     const guest = join(host);
     host.setStartLevel(6);
@@ -487,7 +483,7 @@ describe('大廳選關', () => {
 
     expect(host.state!.level).toBe(6);
     expect(host.state!.startLevel).toBe(6);
-    expect(host.state!.pool).toBe(20);
+    expect(host.state!.players.map((p) => p.charge)).toEqual([5, 5]);
     expect(guest.state!.level).toBe(6);
     expect(guest.state!.startLevel).toBe(6);
     expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
@@ -544,7 +540,7 @@ describe('再來一局回到起始關卡', () => {
 });
 
 describe('從本關接關', () => {
-  test('失敗後接關：從失敗的那一關開始，分數歸零，彈珠池補滿，場上彈珠清空，種子換新', () => {
+  test('失敗後接關：從失敗的那一關開始，分數歸零，發射量補滿，場上彈珠清空，種子換新', () => {
     const host = createHostSession({ seed: 1 });
     host.setStartLevel(3);
     host.start();
@@ -558,7 +554,7 @@ describe('從本關接關', () => {
     expect(host.state!.status).toBe('playing');
     expect(host.state!.level).toBe(3);
     expect(host.state!.score).toBe(0);
-    expect(host.state!.pool).toBe(10);
+    expect(host.state!.players[0]!.charge).toBe(5);
     expect(host.state!.marbles).toHaveLength(0);
     expect(host.state!.bullets).toHaveLength(0);
     expect(JSON.stringify(host.state!.bricks)).not.toBe(brickIdsBefore);
@@ -579,7 +575,7 @@ describe('從本關接關', () => {
   test('還沒失敗時接關無效', () => {
     const host = newHost();
     host.start();
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.advance(DT);
     const before = JSON.stringify(host.state);
 
@@ -615,7 +611,7 @@ describe('從本關接關', () => {
     host.continueRun();
 
     expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'left']);
-    expect(host.state!.pool).toBe(20);
+    expect(host.state!.players.map((p) => p.charge)).toEqual([5, 5]);
   });
 });
 
@@ -646,20 +642,18 @@ describe('生命、屍體與整場效果的同步', () => {
     expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
   });
 
-  test('玩家端收到的整場效果與擋板寬度效果與房主一致，彈珠的資料不再含貫通欄位', () => {
+  test('玩家端收到的整場效果與擋板寬度效果與房主一致，彈珠的資料含攻擊力、不含貫通欄位', () => {
     const { host, guest } = twoPlayers();
-    host.setLocalInput(rightClick(300));
+    host.setLocalInput(fireAt(300));
     host.state!.effects.pierce = 2.5;
-    host.state!.effects.marbleSize = { kind: 'shrink', left: 4 };
     host.state!.players[1]!.paddleEffect = { kind: 'shorten', left: 3 };
 
     host.advance(DT);
 
     expect(guest.state!.effects.pierce).toBeGreaterThan(2.4);
-    expect(guest.state!.effects.marbleSize).toMatchObject({ kind: 'shrink' });
     expect(guest.state!.players[1]!.paddleEffect).toMatchObject({ kind: 'shorten' });
     expect(guest.state!.marbles).toHaveLength(1);
-    expect(Object.keys(guest.state!.marbles[0]!).sort()).toEqual(['id', 'pos', 'vel']);
+    expect(Object.keys(guest.state!.marbles[0]!).sort()).toEqual(['id', 'pos', 'power', 'vel']);
     expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
   });
 
@@ -713,7 +707,7 @@ describe('擋板深度與多隻怪物的同步', () => {
     const { host, guest } = playing(1);
 
     // 玩家端守上方：指標離上方邊緣 70。
-    guest.sendInput({ pointer: { x: 250, y: 70 }, primary: false, secondary: false });
+    guest.sendInput({ pointer: { x: 250, y: 70 }, fire: false });
     host.advance(DT);
 
     const top = host.state!.players.find((p) => p.side === 'top')!;

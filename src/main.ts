@@ -10,6 +10,7 @@ import { normalizeRoomCode } from './net/room-code.ts';
 import { draw } from './render/draw.ts';
 import { deriveEffectPanel, type EffectPanel, type EffectRow } from './render/effect-panel.ts';
 import { SIDE_COLORS } from './render/palette.ts';
+import { viewDeltaToArena, viewToArena } from './render/view.ts';
 
 const STEP = 1 / 120;
 const BEST_KEY = 'polybounce.bestLevel';
@@ -85,8 +86,7 @@ let recordedDefeat = false;
 
 /** 本機玩家的虛擬指標，永遠在場地 0 到 ARENA_SIZE 之內；準星就畫在這裡，不會同步給其他玩家。 */
 const pointer = { x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 };
-let primary = false;
-let secondary = false;
+let fire = false;
 /** 點擊當下的指標位置，避免點擊與之後的移動被併進同一幀。 */
 const clickPointer = { x: pointer.x, y: pointer.y };
 
@@ -97,14 +97,18 @@ let lockUnavailable = !('requestPointerLock' in canvas);
 
 const clampArena = (v: number) => Math.min(ARENA_SIZE, Math.max(0, v));
 
+/** 滑鼠在畫面上的位置或位移是旋轉後的座標，先轉回場地座標再交給遊戲。 */
 function toArena(e: MouseEvent) {
   const rect = canvas.getBoundingClientRect();
+  const side = localSide() ?? 'bottom';
   if (locked) {
-    pointer.x = clampArena(pointer.x + (e.movementX / rect.width) * ARENA_SIZE);
-    pointer.y = clampArena(pointer.y + (e.movementY / rect.height) * ARENA_SIZE);
+    const d = viewDeltaToArena(side, { x: (e.movementX / rect.width) * ARENA_SIZE, y: (e.movementY / rect.height) * ARENA_SIZE });
+    pointer.x = clampArena(pointer.x + d.x);
+    pointer.y = clampArena(pointer.y + d.y);
   } else {
-    pointer.x = clampArena(((e.clientX - rect.left) / rect.width) * ARENA_SIZE);
-    pointer.y = clampArena(((e.clientY - rect.top) / rect.height) * ARENA_SIZE);
+    const p = viewToArena(side, { x: ((e.clientX - rect.left) / rect.width) * ARENA_SIZE, y: ((e.clientY - rect.top) / rect.height) * ARENA_SIZE });
+    pointer.x = clampArena(p.x);
+    pointer.y = clampArena(p.y);
   }
 }
 
@@ -163,14 +167,13 @@ canvas.addEventListener('mousemove', toArena);
 canvas.addEventListener('mousedown', (e) => {
   if (inPlay() && !locked) {
     requestLock();
-    // 重新鎖定的那一下點擊只用來鎖定，不當成瞄準或發射。
+    // 重新鎖定的那一下點擊只用來鎖定，不當成發射。
     if (!lockUnavailable) return;
   }
   toArena(e);
   clickPointer.x = pointer.x;
   clickPointer.y = pointer.y;
-  if (e.button === 0) primary = true;
-  if (e.button === 2) secondary = true;
+  if (e.button === 0) fire = true;
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // 暫停畫面蓋在畫布上，點空白處也要能重新鎖定並繼續。
@@ -424,10 +427,8 @@ function syncScreens() {
 }
 
 function buildInput(): PlayerInput {
-  const clicked = primary || secondary;
-  const input: PlayerInput = { pointer: { ...(clicked ? clickPointer : pointer) }, primary, secondary };
-  primary = false;
-  secondary = false;
+  const input: PlayerInput = { pointer: { ...(fire ? clickPointer : pointer) }, fire };
+  fire = false;
   return input;
 }
 
@@ -510,7 +511,7 @@ function frame(now: number) {
   }
   renderEffectPanel(state ? deriveEffectPanel(state, side) : null);
   if (state) {
-    draw(ctx, state, pointer, localSide());
+    draw(ctx, state, pointer, side ?? 'bottom');
     const summary = summarize(state);
     sfx.play(deriveEvents(previous, summary));
     previous = summary;

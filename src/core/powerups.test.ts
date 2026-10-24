@@ -3,7 +3,7 @@ import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Monster, PlayerInput, PowerUp, PowerUpKind, Side } from './types.ts';
 import { at } from './test-input.ts';
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
 const cornerBrick = () => brickAt(160, 160);
@@ -26,7 +26,7 @@ function dropGame(opts: Partial<GameOptions> = {}) {
     seed: 1,
     layout: inPathLayout,
     dropChance: 1,
-    powerUpKinds: ['supply'],
+    powerUpKinds: ['pierce'],
     ...opts,
   });
 }
@@ -49,7 +49,7 @@ function runUntil(game: Game, done: () => boolean, x: number, maxSeconds = 20) {
 /** 從下方玩家垂直射出一顆彈珠，打碎路徑上的磚塊。 */
 function breakPathBrick(game: Game) {
   const before = game.state.bricks.length;
-  game.step(1 / 60, inputs(game, 400, rightClick(400)));
+  game.step(1 / 60, inputs(game, 400, fireAt(400)));
   runUntil(game, () => game.state.bricks.length < before, 400);
 }
 
@@ -86,7 +86,7 @@ describe('道具掉落', () => {
     const [p] = game.state.powerUps;
     expect(game.state.powerUps).toHaveLength(1);
     expect(p!.side).toBe('bottom');
-    expect(p!.kind).toBe('supply');
+    expect(p!.kind).toBe('pierce');
     expect(p!.pos.x).toBeCloseTo(400);
     const y0 = p!.pos.y;
     run(game, 1, 100);
@@ -95,7 +95,7 @@ describe('道具掉落', () => {
   });
 
   test('每位在場玩家的方位各掉一個、類型相同、屬於同一批；牆沒有道具', () => {
-    const game = dropGame({ playerCount: 3, powerUpKinds: ['supply', 'widen', 'multiball'] });
+    const game = dropGame({ playerCount: 3, powerUpKinds: ['pierce', 'widen', 'multiball'] });
 
     breakPathBrick(game);
 
@@ -109,7 +109,7 @@ describe('道具掉落', () => {
     const game = dropGame({ layout: () => [brickAt(376, 300), brickAt(176, 300), cornerBrick()] });
     breakPathBrick(game);
     const before = game.state.bricks.length;
-    game.step(1 / 60, inputs(game, 200, rightClick(200)));
+    game.step(1 / 60, inputs(game, 200, fireAt(200)));
     runUntil(game, () => game.state.bricks.length < before, 200);
 
     const batches = new Set(game.state.powerUps.map((p) => p.batch));
@@ -131,93 +131,36 @@ describe('道具掉落', () => {
     expect(dropped / games).toBeLessThan(0.34);
   });
 
-  test('沒有被接到的道具飄出場地後消失，不影響彈珠池', () => {
+  test('沒有被接到的道具飄出場地後消失，也不會生效', () => {
     const game = dropGame();
     breakPathBrick(game);
-    const pool = game.state.pool;
 
     runUntil(game, () => game.state.powerUps.length === 0, 100);
 
     expect(game.state.powerUps).toHaveLength(0);
-    expect(game.state.pool).toBe(pool);
+    expect(game.state.effects.pierce).toBe(0);
   });
 
   test('道具只有被擋板碰到才拾取：擋板在別處時不會拾取', () => {
     const game = dropGame();
-    const p = placeOnPaddle(game, 'bottom', 'supply');
+    const p = placeOnPaddle(game, 'bottom', 'pierce');
     p.pos.x = 100;
 
     game.step(1 / 60, [at(400)]);
 
     expect(game.state.powerUps).toHaveLength(1);
-    expect(game.state.pool).toBe(10);
+    expect(game.state.effects.pierce).toBe(0);
   });
 });
 
-describe('補給', () => {
-  test('被擋板接到，彈珠池增加 5 顆', () => {
-    const game = dropGame();
-    placeOnPaddle(game, 'bottom', 'supply');
-    game.state.pool = 4;
-
-    game.step(1 / 60, [at(400)]);
-
-    expect(game.state.pool).toBe(9);
-    expect(game.state.powerUps).toHaveLength(0);
-  });
-
-  test('實際掉落的補給也能接到：從磚塊飄下來被擋板接住', () => {
+describe('實際掉落的道具', () => {
+  test('從磚塊飄下來被擋板接住就生效', () => {
     const game = dropGame();
     breakPathBrick(game);
-    const pool = game.state.pool;
 
     runUntil(game, () => game.state.powerUps.length === 0, 400);
 
-    expect(game.state.pool).toBe(pool + 5);
-  });
-
-  test('彈珠池不會超過人數乘以 20', () => {
-    const game = dropGame();
-    placeOnPaddle(game, 'bottom', 'supply');
-    game.state.pool = 17;
-
-    game.step(1 / 60, [at(400)]);
-
-    expect(game.state.pool).toBe(20);
-  });
-
-  test('已經在上限的彈珠池接補給不會增加', () => {
-    const game = dropGame({ playerCount: 2 });
-    placeOnPaddle(game, 'bottom', 'supply');
-    game.state.pool = 40;
-
-    game.step(1 / 60, [at(400), at(400, 'top')]);
-
-    expect(game.state.pool).toBe(40);
-  });
-
-  test('同一批補給只有第一個被接到的生效，其餘立刻消失', () => {
-    const game = dropGame({ playerCount: 2 });
-    placeOnPaddle(game, 'bottom', 'supply', 5, 1);
-    const far = placeOnPaddle(game, 'top', 'supply', 5, 2);
-    far.pos.y = 300;
-    game.state.pool = 10;
-
-    game.step(1 / 60, [at(400), at(400, 'top')]);
-
-    expect(game.state.pool).toBe(15);
-    expect(game.state.powerUps).toHaveLength(0);
-  });
-
-  test('不同批的補給各自生效', () => {
-    const game = dropGame();
-    placeOnPaddle(game, 'bottom', 'supply', 1, 1);
-    placeOnPaddle(game, 'bottom', 'supply', 2, 2);
-    game.state.pool = 3;
-
-    game.step(1 / 60, [at(400)]);
-
-    expect(game.state.pool).toBe(13);
+    expect(game.state.effects.pierce).toBeGreaterThan(0);
   });
 });
 
@@ -230,7 +173,7 @@ describe('加寬', () => {
 
   /** 彈珠在 x=400 垂直來回；擋板移到 paddleX 等著，回傳回來時彈珠是否還在場上。 */
   const catchesAt = (game: Game, paddleX: number) => {
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     run(game, 4.5, paddleX);
     return game.state.marbles.length === 1;
   };
@@ -259,7 +202,7 @@ describe('加寬', () => {
   test('加寬後接球的反彈角度仍以擋板中心與擊中位置計算', () => {
     const game = widenGame();
     catchWiden(game);
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     // 彈珠 x=400 回來時，擋板中心在 x=490：偏移 -90，是加寬後的邊緣，往左斜彈。
     let bounced = false;
     for (let t = 0; t < 5 && !bounced; t += 1 / 60) {
@@ -327,7 +270,7 @@ describe('縮短擋板', () => {
 
   /** 彈珠在 x=400 垂直來回；擋板移到 paddleX 等著，回傳回來時彈珠是否還在場上。 */
   const catchesAt = (game: Game, paddleX: number) => {
-    game.step(1 / 60, inputs(game, paddleX, rightClick(400)));
+    game.step(1 / 60, inputs(game, paddleX, fireAt(400)));
     run(game, 4.5, paddleX);
     return game.state.marbles.length === 1;
   };
@@ -403,16 +346,16 @@ describe('縮短擋板', () => {
 
   test('擋板位置被夾回場地範圍內', () => {
     const game = shortenGame();
-    // 瞄準中輸入階段不會移動擋板，所以位置維持在超出範圍的地方，直到拾取時被夾回。
+    // 擋板貼著左緣時半寬 60；接到加寬後半寬變 90，位置必須被夾回場地內。
     const player = game.state.players[0]!;
-    player.aiming = true;
-    player.paddle = 0;
-    placeOnPaddle(game, 'bottom', 'shorten');
+    game.step(1 / 60, inputs(game, 0));
+    expect(player.paddle).toBe(60);
+    placeOnPaddle(game, 'bottom', 'widen');
 
     game.step(1 / 60, inputs(game, 0));
 
-    expect(player.paddleEffect?.kind).toBe('shorten');
-    expect(player.paddle).toBe(36);
+    expect(player.paddleEffect?.kind).toBe('widen');
+    expect(player.paddle).toBe(90);
   });
 
   test('核心大小不受縮短影響', () => {
@@ -490,8 +433,8 @@ describe('多球', () => {
 
   test('場上每顆彈珠各分裂成三顆，速度大小不變、方向略有不同', () => {
     const game = multiGame();
-    game.step(1 / 60, [rightClick(400)]);
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     const speed = Math.hypot(game.state.marbles[0]!.vel.x, game.state.marbles[0]!.vel.y);
     placeOnPaddle(game, 'bottom', 'multiball');
 
@@ -503,22 +446,22 @@ describe('多球', () => {
     expect(angles.size).toBe(3);
   });
 
-  test('分裂不會從彈珠池扣除，也不會增加彈珠池', () => {
+  test('分裂不會消耗發射量，也不會增加發射量', () => {
     const game = multiGame();
-    game.step(1 / 60, [rightClick(400)]);
-    const pool = game.state.pool;
+    game.step(1 / 60, [fireAt(400)]);
+    const charge = game.state.players[0]!.charge;
     placeOnPaddle(game, 'bottom', 'multiball');
 
     game.step(1 / 60, [at(400)]);
 
     expect(game.state.marbles).toHaveLength(3);
-    expect(game.state.pool).toBe(pool);
+    expect(game.state.players[0]!.charge).toBeCloseTo(charge + 1 / 60);
   });
 
   test('包含其他玩家發射的彈珠，每顆都分裂', () => {
     const game = multiGame(2);
-    game.step(1 / 60, [at(400), rightClick(400)]);
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.step(1 / 60, [at(400), fireAt(400)]);
+    game.step(1 / 60, [fireAt(400), at(400)]);
     expect(game.state.marbles).toHaveLength(2);
     placeOnPaddle(game, 'bottom', 'multiball');
 
@@ -529,7 +472,7 @@ describe('多球', () => {
 
   test('同一批多球只有第一個被接到的生效，其餘立刻消失', () => {
     const game = multiGame(2);
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.step(1 / 60, [fireAt(400), at(400)]);
     placeOnPaddle(game, 'bottom', 'multiball', 3, 1);
     const far = placeOnPaddle(game, 'top', 'multiball', 3, 2);
     far.pos.y = 300;
@@ -542,8 +485,9 @@ describe('多球', () => {
 
   test('場上彈珠有上限 100 顆，超出的分裂結果不產生', () => {
     const game = multiGame(4);
-    for (let i = 0; i < 10; i++) game.step(1 / 60, game.state.players.map(() => rightClick(400)));
-    expect(game.state.marbles).toHaveLength(40);
+    for (let i = 0; i < 40; i++) {
+      game.state.marbles.push({ id: 500 + i, pos: { x: 300 + i * 10, y: 500 }, vel: { x: 0, y: -100 }, power: 1 });
+    }
     placeOnPaddle(game, 'bottom', 'multiball');
 
     game.step(1 / 60, game.state.players.map(() => at(400)));
@@ -551,20 +495,19 @@ describe('多球', () => {
     expect(game.state.marbles).toHaveLength(100);
   });
 
-  test('失敗條件只看彈珠池與場上彈珠，不受分裂影響', () => {
-    // 磚塊夠硬，彈珠亂飛也不會意外過關而補滿彈珠池。
+  test('分裂出的彈珠全部漏接、發射量也是零，只要有人活著就不會失敗', () => {
+    // 磚塊夠硬，彈珠亂飛也不會意外過關。
     const game = dropGame({ layout: () => [brickAt(160, 160, 100000)], powerUpKinds: ['multiball'] });
-    for (let i = 0; i < 10; i++) game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
+    game.state.players[0]!.charge = 0;
     placeOnPaddle(game, 'bottom', 'multiball');
     game.step(1 / 60, [at(400)]);
-    expect(game.state.pool).toBe(0);
-    expect(game.state.marbles.length).toBeGreaterThan(10);
-    expect(game.state.status).toBe('playing');
+    expect(game.state.marbles.length).toBeGreaterThan(1);
 
     runUntil(game, () => game.state.marbles.length === 0, 100, 300);
 
     expect(game.state.marbles).toHaveLength(0);
-    expect(game.state.status).toBe('defeated');
+    expect(game.state.status).toBe('playing');
   });
 });
 
@@ -583,7 +526,7 @@ describe('怪物與 BOSS 掉落', () => {
   /** 第一位玩家的擋板跟著怪物走，彈珠打完就再補發一顆，讓彈珠持續撞擊怪物。 */
   function chase(game: Game) {
     const x = game.state.monsters[0]?.pos.x ?? 400;
-    return inputs(game, x, game.state.marbles.length === 0 ? rightClick(x) : at(x));
+    return inputs(game, x, game.state.marbles.length === 0 ? fireAt(x) : at(x));
   }
 
   /** 一路推進到 until 成立，回傳期間看過的道具編號。 */
@@ -598,7 +541,6 @@ describe('怪物與 BOSS 掉落', () => {
 
   test('血量降到門檻時掉落，每個門檻只掉一次，打倒時也不重複', () => {
     const game = monsterGame(6, false);
-    game.state.pool = 100;
     const hp = () => game.state.monsters[0]?.hp ?? 0;
 
     // 6 點血：血量還高於 66%（約 4 點）時不掉落。
@@ -612,7 +554,6 @@ describe('怪物與 BOSS 掉落', () => {
 
   test('BOSS 與一般怪物使用同樣的規則', () => {
     const game = monsterGame(6, true);
-    game.state.pool = 100;
 
     const all = dropIds(game, () => game.state.monsters.length === 0);
 
@@ -629,8 +570,8 @@ describe('怪物與 BOSS 掉落', () => {
       monsterDropKinds: ['widen'],
     });
     // 兩顆彈珠各自貼著一隻怪物、朝它飛，下一步同時打倒兩隻。
-    game.state.marbles.push({ id: 1, pos: { x: 300, y: 440 }, vel: { x: 0, y: -420 } });
-    game.state.marbles.push({ id: 2, pos: { x: 500, y: 440 }, vel: { x: 0, y: -420 } });
+    game.state.marbles.push({ id: 1, pos: { x: 300, y: 440 }, vel: { x: 0, y: -420 }, power: 1 });
+    game.state.marbles.push({ id: 2, pos: { x: 500, y: 440 }, vel: { x: 0, y: -420 }, power: 1 });
 
     game.step(1 / 60, [at(400)]);
 
@@ -641,7 +582,6 @@ describe('怪物與 BOSS 掉落', () => {
 
   test('怪物掉落朝每位玩家的方位各一個、類型相同、同一批', () => {
     const game = monsterGame(6, false, 3);
-    game.state.pool = 100;
     const hp = () => game.state.monsters[0]?.hp ?? 0;
     for (let t = 0; t < 120 && hp() > 3; t += 1 / 60) game.step(1 / 60, chase(game));
 

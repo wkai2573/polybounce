@@ -9,6 +9,8 @@ export interface Marble {
   id: number;
   pos: Vec2;
   vel: Vec2;
+  /** 攻擊力：打到磚塊與怪物時扣的血量。初始為一，每被擋板彈回一次加一，沒有上限。 */
+  power: number;
 }
 
 /** 磚塊的 x、y 為左上角。 */
@@ -47,14 +49,11 @@ export interface Bullet {
 }
 
 export type PowerUpKind =
-  | 'supply'
   | 'widen'
   | 'multiball'
   | 'pierce'
   | 'burst'
   | 'heal'
-  | 'enlarge'
-  | 'shrink'
   | 'shorten';
 
 /**
@@ -82,7 +81,6 @@ export interface PlayerState {
   paddle: number;
   /** 擋板深度：擋板表面離自己那一邊的距離，0 是貼邊，最大 PADDLE_MAX_DEPTH。核心、彈珠反彈面、道具拾取與發射起點都以它為準。 */
   depth: number;
-  aiming: boolean;
   /** 生命，被子彈打到核心扣 1 點，歸零就死亡。 */
   lives: number;
   /** 死亡時擋板停在原位變成屍體，該方位對彈珠是牆，玩家不能操作。 */
@@ -93,21 +91,20 @@ export interface PlayerState {
   revive: number;
   /** 目前的擋板寬度效果，null 代表原本的寬度。死亡期間不倒數，所以屍體的寬度不變。 */
   paddleEffect: PaddleEffect | null;
+  /** 發射量：零到 MAX_CHARGE 之間的小數，每秒恢復一顆，至少一才能發射。死亡期間凍結。 */
+  charge: number;
 }
 
 /** 整場效果：全隊共用，期間場上所有彈珠都受影響，包含新發射與分裂出的。 */
 export interface FieldEffects {
   /** 貫通剩餘秒數，0 代表沒有貫通。貫通中的彈珠穿過磚塊與怪物，仍被牆與擋板反彈。 */
   pierce: number;
-  /** 彈珠大小效果：放大與縮小二選一，null 代表原本的大小。 */
-  marbleSize: { kind: 'enlarge' | 'shrink'; left: number } | null;
 }
 
-/** primary 與 secondary 是這一幀才按下的邊緣訊號，不是持續按住。 */
+/** fire 是這一幀才按下左鍵的邊緣訊號，不是持續按住。 */
 export interface PlayerInput {
   pointer: Vec2;
-  primary: boolean;
-  secondary: boolean;
+  fire: boolean;
 }
 
 export interface GameState {
@@ -116,7 +113,6 @@ export interface GameState {
   /** 這一局的起始關卡。接關之後仍然是原本的起點，用來判斷是否從第 1 關開始，以及再來一局要回到哪一關。 */
   startLevel: number;
   score: number;
-  pool: number;
   marbles: Marble[];
   bricks: Brick[];
   monsters: Monster[];

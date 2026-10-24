@@ -1,6 +1,7 @@
 import {
   ARENA_SIZE,
   INITIAL_LIVES,
+  MAX_CHARGE,
   MAX_LIVES,
   PADDLE_THICKNESS,
   PADDLE_WIDTH,
@@ -44,14 +45,13 @@ export const launchPoint = (player: PlayerState, radius: number): Vec2 =>
 export const alivePlayers = (state: GameState): PlayerState[] => state.players.filter((p) => !p.dead);
 
 export function createPlayer(side: Side): PlayerState {
-  return { side, paddle: ARENA_SIZE / 2, depth: 0, aiming: false, lives: INITIAL_LIVES, dead: false, invincible: 0, revive: 0, paddleEffect: null };
+  return { side, paddle: ARENA_SIZE / 2, depth: 0, lives: INITIAL_LIVES, dead: false, invincible: 0, revive: 0, paddleEffect: null, charge: MAX_CHARGE };
 }
 
-/** 生命歸零：擋板停在原位變成屍體，取消瞄準。 */
+/** 生命歸零：擋板停在原位變成屍體。 */
 export function killPlayer(player: PlayerState): void {
   player.lives = 0;
   player.dead = true;
-  player.aiming = false;
   player.invincible = 0;
   player.revive = 0;
 }
@@ -64,10 +64,11 @@ export function revivePlayer(player: PlayerState): void {
   player.revive = 0;
 }
 
-/** 新關卡開始：復活並補滿生命，清掉無敵與復活進度。 */
+/** 新關卡開始：復活並補滿生命與發射量，清掉無敵與復活進度。 */
 export function resetForNewLevel(player: PlayerState): void {
   player.dead = false;
   player.lives = MAX_LIVES;
   player.invincible = 0;
   player.revive = 0;
+  player.charge = MAX_CHARGE;
 }

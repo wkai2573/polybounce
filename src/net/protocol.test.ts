@@ -12,7 +12,7 @@ describe('roundForWire', () => {
   test('壓縮後的狀態明顯變小', () => {
     const game = createGame({ playerCount: 1, seed: 1, startLevel: 10 });
     for (let i = 0; i < 100; i++) {
-      game.state.marbles.push({ id: i, pos: { x: 400.123456789, y: 400.987654321 }, vel: { x: 123.456789012, y: -222.123456789 } });
+      game.state.marbles.push({ id: i, pos: { x: 400.123456789, y: 400.987654321 }, vel: { x: 123.456789012, y: -222.123456789 }, power: 1 });
     }
 
     const raw = JSON.stringify(game.state).length;

@@ -7,10 +7,10 @@ import type { PlayerInput, Side } from './types.ts';
  * 預設是下方的玩家。
  */
 export function at(along: number, side: Side = 'bottom'): PlayerInput {
-  return { pointer: pointAt(side, along, 0), primary: false, secondary: false };
+  return { pointer: pointAt(side, along, 0), fire: false };
 }
 
 /** 指標離自己那一邊 depth 遠，用來讓擋板往內移動。 */
 export function atDepth(along: number, depth: number, side: Side = 'bottom'): PlayerInput {
-  return { pointer: pointAt(side, along, depth), primary: false, secondary: false };
+  return { pointer: pointAt(side, along, depth), fire: false };
 }

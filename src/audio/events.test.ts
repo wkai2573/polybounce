@@ -4,7 +4,7 @@ import type { Brick, Game, GameOptions, Monster, PlayerInput } from '../core/typ
 import { deriveEvents, summarize } from './events.ts';
 import { at } from '../core/test-input.ts';
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
 const corner = (): Brick => ({ ...brickAt(160, 160, 100000), id: 99 });
 const DT = 1 / 60;
@@ -42,15 +42,32 @@ describe('音效事件', () => {
     expect(deriveEvents(null, summarize(game.state))).toEqual([]);
   });
 
-  test('發射：彈珠池減少', () => {
+  test('發射：發射量減少', () => {
     const game = newGame();
 
-    expect(stepEvents(game, [rightClick(400)])).toEqual([{ kind: 'launch', count: 1 }]);
+    expect(stepEvents(game, [fireAt(400)])).toEqual([{ kind: 'launch', count: 1 }]);
+  });
+
+  test('發射量恢復不算發射', () => {
+    const game = newGame();
+    game.state.players[0]!.charge = 2;
+
+    expect(collect(game, 1, at(400)).has('launch')).toBe(false);
+  });
+
+  test('一次發射多顆：回報的顆數等於發射量減少的顆數', () => {
+    const game = newGame();
+    const before = summarize(game.state);
+    game.step(DT, [fireAt(400)]);
+    game.step(DT, [fireAt(400)]);
+    game.step(DT, [fireAt(400)]);
+
+    expect(deriveEvents(before, summarize(game.state))).toContainEqual({ kind: 'launch', count: 3 });
   });
 
   test('撞磚：磚塊血量減少，並回報這一段撞了幾次', () => {
     const game = newGame({ layout: () => [brickAt(376, 300, 3), corner()] });
-    stepEvents(game, [rightClick(400)]);
+    stepEvents(game, [fireAt(400)]);
 
     const hits: number[] = [];
     for (let t = 0; t < 3 && hits.length === 0; t += DT) {
@@ -63,14 +80,14 @@ describe('音效事件', () => {
   test('撞怪物也算撞擊', () => {
     const monster: Monster = { id: 0, pos: { x: 400, y: 560 }, radius: 36, hp: 3, maxHp: 3, boss: false, fire: 5 };
     const game = newGame({ monsters: (level) => (level === 1 ? [{ ...monster }] : []) });
-    stepEvents(game, [rightClick(400)]);
+    stepEvents(game, [fireAt(400)]);
 
     expect(collect(game, 2, at(400)).has('hit')).toBe(true);
   });
 
-  test('擊碎最後一塊磚：先有撞擊，過關時有過關事件，彈珠池補滿不算拾取', () => {
+  test('擊碎最後一塊磚：先有撞擊，過關時有過關事件，發射量補滿不算拾取', () => {
     const game = newGame({ layout: (level) => (level === 1 ? [brickAt(376, 300)] : [corner()]) });
-    stepEvents(game, [rightClick(400)]);
+    stepEvents(game, [fireAt(400)]);
 
     const kinds = collect(game, 3, at(400));
 
@@ -81,10 +98,11 @@ describe('音效事件', () => {
 
   test('失敗：狀態變成失敗時只有一次失敗事件', () => {
     const game = newGame();
-    for (let i = 0; i < 10; i++) stepEvents(game, [rightClick(400)]);
+    game.state.players[0]!.dead = true;
+    game.state.players[0]!.lives = 0;
 
     const defeats: string[] = [];
-    for (let t = 0; t < 30; t += DT) {
+    for (let t = 0; t < 1; t += DT) {
       for (const e of stepEvents(game, [at(700)])) if (e.kind === 'defeat') defeats.push(e.kind);
     }
 
@@ -92,11 +110,10 @@ describe('音效事件', () => {
     expect(defeats).toHaveLength(1);
   });
 
-  test('接到補給、加寬、多球都算拾取', () => {
-    for (const kind of ['supply', 'widen', 'multiball'] as const) {
+  test('接到貫通、加寬、多球都算拾取', () => {
+    for (const kind of ['pierce', 'widen', 'multiball'] as const) {
       const game = newGame();
-      stepEvents(game, [rightClick(400)]);
-      game.state.pool = 4;
+      stepEvents(game, [fireAt(400)]);
       game.state.powerUps.push({ id: 1, batch: 1, kind, side: 'bottom', pos: { x: 400, y: 790 } });
 
       const events = stepEvents(game, [at(400)]);
@@ -108,7 +125,7 @@ describe('音效事件', () => {
   test('接到貫通或環爆也算拾取，沿用同一個拾取音效', () => {
     for (const kind of ['pierce', 'burst'] as const) {
       const game = newGame();
-      stepEvents(game, [rightClick(400)]);
+      stepEvents(game, [fireAt(400)]);
       game.state.powerUps.push({ id: 1, batch: 1, kind, side: 'bottom', pos: { x: 400, y: 790 } });
 
       const events = stepEvents(game, [at(400)]);
@@ -117,8 +134,8 @@ describe('音效事件', () => {
     }
   });
 
-  test('接到補血、放大彈珠、縮小彈珠、縮短擋板也都算拾取', () => {
-    for (const kind of ['heal', 'enlarge', 'shrink', 'shorten'] as const) {
+  test('接到補血、縮短擋板也都算拾取', () => {
+    for (const kind of ['heal', 'shorten'] as const) {
       const game = newGame();
       game.state.players[0]!.lives = 1;
       game.state.powerUps.push({ id: 1, batch: 1, kind, side: 'bottom', pos: { x: 400, y: 790 } });
@@ -129,18 +146,17 @@ describe('音效事件', () => {
     }
   });
 
-  test('貫通與彈珠大小的倒數變短不算拾取', () => {
+  test('貫通的倒數變短不算拾取', () => {
     const game = newGame();
-    stepEvents(game, [rightClick(400)]);
+    stepEvents(game, [fireAt(400)]);
     game.state.effects.pierce = 3;
-    game.state.effects.marbleSize = { kind: 'enlarge', left: 6 };
 
     expect(collect(game, 0.5, at(400)).has('pickup')).toBe(false);
   });
 
   test('道具飄出場地沒被接到，不會有拾取聲', () => {
     const game = newGame();
-    game.state.powerUps.push({ id: 1, batch: 1, kind: 'supply', side: 'bottom', pos: { x: 100, y: 820 } });
+    game.state.powerUps.push({ id: 1, batch: 1, kind: 'widen', side: 'bottom', pos: { x: 100, y: 820 } });
 
     expect(stepEvents(game, [at(600)]).map((e) => e.kind)).not.toContain('pickup');
   });
@@ -183,7 +199,7 @@ describe('音效事件', () => {
     top.lives = 0;
     top.dead = true;
     top.revive = 4;
-    game.state.marbles.push({ id: 1, pos: { x: 400, y: 12 }, vel: { x: 0, y: -420 } });
+    game.state.marbles.push({ id: 1, pos: { x: 400, y: 12 }, vel: { x: 0, y: -420 }, power: 1 });
 
     const kinds = stepEvents(game, [at(400), at(400)]).map((e) => e.kind);
 
@@ -196,7 +212,7 @@ describe('音效事件', () => {
     const top = game.state.players[1]!;
     top.lives = 0;
     top.dead = true;
-    stepEvents(game, [rightClick(400), at(400)]);
+    stepEvents(game, [fireAt(400), at(400)]);
 
     const kinds = collect(game, 3, at(400));
 
@@ -205,9 +221,11 @@ describe('音效事件', () => {
     expect(kinds.has('pickup')).toBe(false);
   });
 
-  test('失敗後再來一局，彈珠池補滿不會被當成補給', () => {
+  test('失敗後再來一局，發射量補滿不會被當成拾取', () => {
     const game = newGame();
-    for (let i = 0; i < 10; i++) stepEvents(game, [rightClick(400)]);
+    for (let i = 0; i < 5; i++) stepEvents(game, [fireAt(400)]);
+    game.state.players[0]!.dead = true;
+    game.state.players[0]!.lives = 0;
     for (let t = 0; t < 30 && game.state.status !== 'defeated'; t += DT) game.step(DT, [at(700)]);
     expect(game.state.status).toBe('defeated');
 
@@ -218,7 +236,7 @@ describe('音效事件', () => {
 
   test('多球讓大量彈珠同時撞擊，事件仍然只是一筆撞擊', () => {
     const game = newGame({ layout: () => [brickAt(376, 300, 50), corner()] });
-    stepEvents(game, [rightClick(400)]);
+    stepEvents(game, [fireAt(400)]);
     const before = summarize(game.state);
     game.state.bricks[0]!.hp -= 10;
 

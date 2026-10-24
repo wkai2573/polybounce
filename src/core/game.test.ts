@@ -4,26 +4,26 @@ import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Monster, PlayerInput } from './types.ts';
 
 /** 預設把指標放在下方玩家自己那一邊的邊緣（y = 800），擋板深度為零。 */
-const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
+const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, fire: false });
 
 describe('開局狀態', () => {
-  test('單人從第 1 關開始，玩家在下方，彈珠池 10 顆、場上沒有彈珠', () => {
+  test('單人從第 1 關開始，玩家在下方，發射量是滿的、場上沒有彈珠', () => {
     const { state } = createGame({ playerCount: 1, seed: 1 });
 
     expect(state.status).toBe('playing');
     expect(state.level).toBe(1);
     expect(state.score).toBe(0);
     expect(state.players[0]!.lives).toBe(3);
-    expect(state.pool).toBe(10);
+    expect(state.players[0]!.charge).toBe(5);
     expect(state.marbles).toHaveLength(0);
     expect(state.bricks.length).toBeGreaterThan(0);
     expect(state.players.map((p) => p.side)).toEqual(['bottom']);
   });
 
-  test('每多一位玩家就多一個方位與 10 顆彈珠', () => {
+  test('每多一位玩家就多一個方位，每位玩家各自有滿的發射量', () => {
     const { state } = createGame({ playerCount: 3, seed: 1 });
 
-    expect(state.pool).toBe(30);
+    expect(state.players.map((p) => p.charge)).toEqual([5, 5, 5]);
     expect(state.players.map((p) => p.side)).toEqual(['bottom', 'top', 'left']);
   });
 });
@@ -48,16 +48,16 @@ describe('擋板移動', () => {
   });
 });
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 
 describe('發射', () => {
-  test('右鍵從擋板中央垂直射出一顆彈珠，彈珠池減一', () => {
+  test('從擋板中央垂直射出一顆彈珠，發射量減一', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
 
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
 
     const { state } = game;
-    expect(state.pool).toBe(9);
+    expect(state.players[0]!.charge).toBeCloseTo(4 + 1 / 60);
     expect(state.marbles).toHaveLength(1);
     const m = state.marbles[0]!;
     expect(m.pos.x).toBeCloseTo(300);
@@ -67,78 +67,48 @@ describe('發射', () => {
   });
 });
 
-const leftClick = (x: number, y: number): PlayerInput => ({ pointer: { x, y }, primary: true, secondary: false });
+const leftClick = (x: number, y: number): PlayerInput => ({ pointer: { x, y }, fire: true });
 
-describe('瞄準模式', () => {
-  test('左鍵進入瞄準模式：擋板被鎖住，也不會射出彈珠', () => {
+describe('左鍵發射', () => {
+  test('指標不論在哪裡，左鍵都從擋板垂直射出，不會朝指標方向偏', () => {
+    const game = createGame({ playerCount: 1, seed: 1 });
+
+    game.step(1 / 60, [leftClick(300, 400)]);
+
+    const { state } = game;
+    const m = state.marbles[0]!;
+    expect(state.players[0]!.charge).toBeCloseTo(4 + 1 / 60);
+    expect(m.vel.x).toBeCloseTo(0);
+    expect(m.vel.y).toBeCloseTo(-420);
+  });
+
+  test('發射的同一幀擋板仍跟著指標移動', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
 
     game.step(1 / 60, [leftClick(300, 800)]);
+
+    expect(game.state.players[0]!.paddle).toBe(300);
+    expect(game.state.marbles).toHaveLength(1);
+  });
+
+  test('沒按左鍵就不會發射，擋板任何時候都能移動', () => {
+    const game = createGame({ playerCount: 1, seed: 1 });
+
+    game.step(1 / 60, [at(300)]);
     game.step(1 / 60, [at(500, 400)]);
 
-    const { state } = game;
-    expect(state.players[0]!.aiming).toBe(true);
-    expect(state.players[0]!.paddle).toBe(300);
-    expect(state.marbles).toHaveLength(0);
-    expect(state.pool).toBe(10);
+    expect(game.state.marbles).toHaveLength(0);
+    expect(game.state.players[0]!.paddle).toBe(500);
   });
 
-  test('瞄準時再按左鍵，朝指標方向射出並離開瞄準模式', () => {
+  test('發射量不足一顆，左鍵沒有作用，也不會消耗發射量', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 800)]);
-
-    game.step(1 / 60, [leftClick(400, 681)]);
-
-    const { state } = game;
-    const v = state.marbles[0]!.vel;
-    expect(state.players[0]!.aiming).toBe(false);
-    expect(state.pool).toBe(9);
-    expect(v.x).toBeCloseTo(420 * Math.SQRT1_2);
-    expect(v.y).toBeCloseTo(-420 * Math.SQRT1_2);
-  });
-
-  test('瞄準角度與自己那一邊的表面至少夾 15 度', () => {
-    const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 800)]);
-
-    game.step(1 / 60, [leftClick(790, 781)]);
-
-    const v = game.state.marbles[0]!.vel;
-    expect(v.x).toBeCloseTo(420 * Math.cos((15 * Math.PI) / 180));
-    expect(v.y).toBeCloseTo(-420 * Math.sin((15 * Math.PI) / 180));
-  });
-
-  test('指標在擋板後方時，也會夾在最小角度之內', () => {
-    const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 800)]);
-
-    game.step(1 / 60, [leftClick(10, 799)]);
-
-    const v = game.state.marbles[0]!.vel;
-    expect(v.x).toBeLessThan(0);
-    expect(v.y).toBeCloseTo(-420 * Math.sin((15 * Math.PI) / 180));
-  });
-
-  test('瞄準時按右鍵是取消瞄準，不會射出彈珠', () => {
-    const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 800)]);
-
-    game.step(1 / 60, [rightClick(300)]);
-
-    const { state } = game;
-    expect(state.players[0]!.aiming).toBe(false);
-    expect(state.marbles).toHaveLength(0);
-    expect(state.pool).toBe(10);
-  });
-
-  test('彈珠池空了，左鍵不會進入瞄準模式', () => {
-    const game = createGame({ playerCount: 1, seed: 1 });
-    for (let i = 0; i < 10; i++) game.step(1 / 60, [rightClick(300)]);
+    game.state.players[0]!.charge = 0.5;
 
     game.step(1 / 60, [leftClick(300, 800)]);
 
-    expect(game.state.pool).toBe(0);
-    expect(game.state.players[0]!.aiming).toBe(false);
+    expect(game.state.marbles).toHaveLength(0);
+    expect(game.state.players[0]!.charge).toBeCloseTo(0.5 + 1 / 60);
   });
 });
 
@@ -158,7 +128,7 @@ function run(game: Game, seconds: number, ...inputs: PlayerInput[]) {
 describe('彈珠飛行', () => {
   test('彈珠依速度移動', () => {
     const game = newGame();
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
     const before = game.state.marbles[0]!.pos.y;
 
     game.step(0.1, [at(300)]);
@@ -168,7 +138,7 @@ describe('彈珠飛行', () => {
 
   test('沒有玩家的那一邊是牆，彈珠會反彈回來', () => {
     const game = newGame();
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
 
     run(game, 2, at(300));
 
@@ -186,7 +156,7 @@ function runUntil(game: Game, done: () => boolean, input: PlayerInput, maxSecond
 describe('擋板接球', () => {
   test('彈珠打中擋板中央，垂直彈回去', () => {
     const game = newGame();
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
     runUntil(game, () => game.state.marbles[0]!.vel.y > 0, at(300));
 
     runUntil(game, () => game.state.marbles[0]!.vel.y < 0, at(300));
@@ -198,7 +168,7 @@ describe('擋板接球', () => {
 
   test('打中擋板邊緣會斜著彈出，越靠邊角度越大', () => {
     const game = newGame();
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
     runUntil(game, () => game.state.marbles[0]!.vel.y > 0, at(300));
 
     // 擋板中心 250、彈珠在 300：偏右 50，是半寬 60 的 5/6，所以偏離垂直 50 度。
@@ -212,38 +182,37 @@ describe('擋板接球', () => {
 });
 
 describe('漏接與失敗', () => {
-  test('漏接的彈珠會消失，不會回到彈珠池；池裡還有彈珠就不算失敗', () => {
+  test('漏接的彈珠會消失，不會回來；只要有人活著就不算失敗', () => {
     const game = newGame();
-    game.step(1 / 60, [rightClick(300)]);
+    game.step(1 / 60, [fireAt(300)]);
 
     run(game, 5, at(700));
 
     expect(game.state.marbles).toHaveLength(0);
-    expect(game.state.pool).toBe(9);
     expect(game.state.status).toBe('playing');
   });
 
-  test('彈珠池空了，且場上最後一顆彈珠也漏接，遊戲失敗', () => {
+  test('發射量是零，且場上最後一顆彈珠也漏接，遊戲不會失敗', () => {
     const game = newGame();
-    for (let i = 0; i < 10; i++) game.step(1 / 60, [rightClick(300)]);
-    expect(game.state.status).toBe('playing');
+    for (let i = 0; i < 5; i++) game.step(1 / 60, [fireAt(300)]);
+    game.state.players[0]!.charge = 0;
 
     run(game, 5, at(700));
 
-    expect(game.state.pool).toBe(0);
     expect(game.state.marbles).toHaveLength(0);
+    expect(game.state.status).toBe('playing');
+  });
+
+  test('全部玩家都死亡才算失敗', () => {
+    const game = newGame(cornerLayout, 2);
+    game.state.players[0]!.dead = true;
+    game.step(1 / 60, [at(400), at(400)]);
+    expect(game.state.status).toBe('playing');
+
+    game.state.players[1]!.dead = true;
+    game.step(1 / 60, [at(400), at(400)]);
+
     expect(game.state.status).toBe('defeated');
-  });
-
-  test('彈珠池空了，但場上還有彈珠，遊戲還沒失敗', () => {
-    const game = newGame();
-    for (let i = 0; i < 10; i++) game.step(1 / 60, [rightClick(300)]);
-
-    run(game, 1, at(700));
-
-    expect(game.state.pool).toBe(0);
-    expect(game.state.marbles.length).toBeGreaterThan(0);
-    expect(game.state.status).toBe('playing');
   });
 });
 
@@ -253,7 +222,7 @@ describe('撞擊磚塊', () => {
 
   test('彈珠撞到普通磚：磚塊消失、得 10 分、彈珠反彈向下', () => {
     const game = newGame(inPathLayout(1));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.bricks.length === 1, at(400));
 
@@ -263,7 +232,7 @@ describe('撞擊磚塊', () => {
 
   test('硬磚要撞多次才碎，碎的時候才得分', () => {
     const game = newGame(inPathLayout(2));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     const target = () => game.state.bricks.find((b) => b.x === 376);
 
@@ -281,7 +250,7 @@ describe('過關', () => {
 
   function clearFirstLevel() {
     const game = newGame(twoLevels);
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     runUntil(game, () => game.state.level === 2, at(400));
     return game;
   }
@@ -295,17 +264,17 @@ describe('過關', () => {
     expect(game.state.status).toBe('playing');
   });
 
-  test('過關時彈珠池補滿，場上的彈珠清空', () => {
+  test('過關時所有玩家的發射量補滿，場上的彈珠清空', () => {
     const game = clearFirstLevel();
 
-    expect(game.state.pool).toBe(10);
+    expect(game.state.players[0]!.charge).toBe(5);
     expect(game.state.marbles).toHaveLength(0);
   });
 
   test('關卡越後面彈珠越快', () => {
     const game = clearFirstLevel();
 
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     expect(game.state.marbles[0]!.vel.y).toBeCloseTo(-420 * 1.03);
   });
@@ -314,7 +283,7 @@ describe('過關', () => {
 describe('多人', () => {
   test('有玩家的方位不是牆：上方玩家接得到彈珠，彈珠被擋板彈回去', () => {
     const game = newGame(cornerLayout, 2);
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.step(1 / 60, [fireAt(400), at(400)]);
 
     run(game, 2.5, at(400), at(400));
 
@@ -324,18 +293,16 @@ describe('多人', () => {
 
   test('上方玩家漏接，彈珠從上方離開場地', () => {
     const game = newGame(cornerLayout, 2);
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.step(1 / 60, [fireAt(400), at(400)]);
 
     run(game, 2.5, at(400), at(700));
 
     expect(game.state.marbles).toHaveLength(0);
-    expect(game.state.pool).toBe(19);
   });
 
   test('兩人時左右兩側仍是牆：貼著表面斜射的彈珠不會飛出場地', () => {
     const game = newGame(cornerLayout, 2);
-    game.step(1 / 60, [leftClick(100, 100), at(400)]);
-    game.step(1 / 60, [leftClick(10, 781), at(400)]);
+    game.state.marbles.push({ id: 9000, pos: { x: 20, y: 600 }, vel: { x: -300, y: -100 }, power: 1 });
 
     run(game, 3, at(400), at(400));
 
@@ -347,26 +314,21 @@ describe('多人', () => {
 });
 
 describe('審查發現的邊界情況', () => {
-  test('彈珠池被別人用光時，已在瞄準的玩家射不出去，彈珠池也不會變負數', () => {
+  test('兩位玩家的發射量各自獨立：一位用完不影響另一位', () => {
     const game = newGame(cornerLayout, 2);
-    for (let i = 0; i < 19; i++) game.step(1 / 60, [rightClick(300), at(400)]);
-    expect(game.state.pool).toBe(1);
-    game.step(1 / 60, [at(300), leftClick(400, 100)]);
-    game.step(1 / 60, [rightClick(300), at(400)]);
-    expect(game.state.pool).toBe(0);
-    const onField = game.state.marbles.length;
+    game.state.players[0]!.charge = 0;
 
-    game.step(1 / 60, [at(300), leftClick(400, 100)]);
+    game.step(1 / 60, [fireAt(300), { ...at(400, 0), fire: true }]);
 
-    expect(game.state.pool).toBe(0);
-    expect(game.state.marbles).toHaveLength(onField);
-    expect(game.state.players[1]!.aiming).toBe(false);
+    expect(game.state.marbles).toHaveLength(1);
+    expect(game.state.players[0]!.charge).toBeCloseTo(1 / 60);
+    expect(game.state.players[1]!.charge).toBeCloseTo(4 + 1 / 60);
   });
 
   test('彈珠垂直擦過磚塊角落時會被彈開，不會穿過去', () => {
     const game = newGame(() => [brickAt(376, 300), brickAt(160, 160)]);
     // 彈珠中心 x=372，離磚塊左緣 4，小於半徑 6，所以會擦到左上角。
-    game.step(1 / 60, [rightClick(372)]);
+    game.step(1 / 60, [fireAt(372)]);
 
     runUntil(game, () => game.state.bricks.length === 1, at(372));
 
@@ -397,7 +359,7 @@ describe('怪物', () => {
     expect(game.state.monsters).toHaveLength(0);
 
     while (game.state.level < 3) {
-      game.step(1 / 60, [rightClick(400)]);
+      game.step(1 / 60, [fireAt(400)]);
       const before = game.state.level;
       runUntil(game, () => game.state.level > before, at(400));
       if (game.state.level === 2) expect(game.state.monsters).toHaveLength(0);
@@ -415,7 +377,7 @@ describe('怪物', () => {
       });
       const idle = Array.from({ length: playerCount }, () => at(400));
       while (game.state.level < 3) {
-        game.step(1 / 60, [rightClick(400), ...idle.slice(1)]);
+        game.step(1 / 60, [fireAt(400), ...idle.slice(1)]);
         const before = game.state.level;
         for (let t = 0; t < 10 && game.state.level === before; t += 1 / 60) game.step(1 / 60, idle);
       }
@@ -427,7 +389,7 @@ describe('怪物', () => {
 
   test('彈珠撞到怪物會反彈並使怪物扣一點血', () => {
     const game = newMonsterGame(inPath(3));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters[0]!.hp < 3, at(400));
 
@@ -438,7 +400,7 @@ describe('怪物', () => {
 
   test('血量歸零時怪物被移除並得分', () => {
     const game = newMonsterGame(inPath(1));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters.length === 0, at(400));
 
@@ -466,13 +428,13 @@ describe('怪物', () => {
   test('只清完磚塊不算過關，怪物也清完才進入下一關', () => {
     // 先打倒路徑上的怪物，再打掉怪物上方的磚塊。
     const game = newMonsterGame(inPath(1), (level) => (level === 1 ? [brickAt(376, 300)] : cornerLayout()));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters.length === 0, at(400));
     expect(game.state.level).toBe(1);
     expect(game.state.bricks).toHaveLength(1);
 
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     runUntil(game, () => game.state.level === 2, at(400));
     expect(game.state.level).toBe(2);
   });
@@ -492,7 +454,7 @@ describe('怪物', () => {
       (level) => (level === 1 ? [{ ...monsterAt(400, 560, 1), id: 0 }, { ...monsterAt(580, 580, 5), id: 1 }] : []),
       (level) => (level === 1 ? [] : cornerLayout()),
     );
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters.length === 1, at(400));
     run(game, 0.5, at(400));
@@ -509,7 +471,7 @@ describe('怪物', () => {
 
   test('只清完怪物不算過關', () => {
     const game = newMonsterGame(inPath(1));
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters.length === 0, at(400));
     run(game, 0.5, at(400));
@@ -522,7 +484,7 @@ describe('怪物', () => {
       (level) => (level === 1 ? [monsterAt(580, 580, 5)] : []),
       (level) => (level === 1 ? [brickAt(376, 300)] : cornerLayout()),
     );
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.bricks.length === 0, at(400));
     run(game, 0.5, at(400));
@@ -649,14 +611,11 @@ describe('核心受擊', () => {
     expect(game.state.players[0]!.paddle).toBe(700);
   });
 
-  test('受傷後仍然可以進入瞄準模式與發射彈珠', () => {
+  test('受傷後仍然可以發射彈珠', () => {
     const game = hitOnce();
 
     game.step(1 / 60, [leftClick(400, 400)]);
-    expect(game.state.players[0]!.aiming).toBe(true);
-
-    game.step(1 / 60, [leftClick(400, 400)]);
-    expect(game.state.pool).toBe(9);
+    expect(game.state.players[0]!.charge).toBeCloseTo(4 + 1 / 60);
     expect(game.state.marbles).toHaveLength(1);
   });
 
@@ -697,7 +656,7 @@ describe('BOSS', () => {
       layout: cornerLayout,
       monsters: (level) => (level === 1 ? [monsterAt(400, 560, 1, true)] : []),
     });
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     runUntil(game, () => game.state.monsters.length === 0, at(400));
 
@@ -707,31 +666,29 @@ describe('BOSS', () => {
 
 describe('玩家離開', () => {
   /** 左右兩邊的玩家沿 y 軸移動。 */
-  const atY = (y: number): PlayerInput => ({ pointer: { x: 0, y }, primary: false, secondary: false });
+  const atY = (y: number): PlayerInput => ({ pointer: { x: 0, y }, fire: false });
 
   test('離開玩家的方位變成牆：原本會漏出去的彈珠改為反彈', () => {
     const game = newGame(cornerLayout, 2);
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    game.step(1 / 60, [fireAt(400), at(400)]);
     game.removePlayer('top');
 
     run(game, 2.5, at(400));
 
     expect(game.state.marbles).toHaveLength(1);
     expect(game.state.marbles[0]!.vel.y).toBeGreaterThan(0);
-    expect(game.state.pool).toBe(19);
   });
 
-  test('彈珠池、分數與其他玩家的擋板不受影響，遊戲繼續', () => {
+  test('分數與其他玩家的擋板不受影響，遊戲繼續', () => {
     const game = newGame(cornerLayout, 3);
-    game.step(1 / 60, [rightClick(400), at(300), at(500)]);
-    const before = { pool: game.state.pool, score: game.state.score };
+    game.step(1 / 60, [fireAt(400), at(300), at(500)]);
+    const before = { score: game.state.score };
 
     game.removePlayer('top');
     game.step(1 / 60, [at(400), atY(500)]);
 
     expect(game.state.players.map((p) => p.side)).toEqual(['bottom', 'left']);
     expect(game.state.players[1]!.paddle).toBe(500);
-    expect(game.state.pool).toBe(before.pool);
     expect(game.state.score).toBe(before.score);
     expect(game.state.status).toBe('playing');
   });
@@ -752,15 +709,14 @@ describe('玩家離開', () => {
     const game = newGame(cornerLayout, 2);
 
     game.removePlayer('top');
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     expect(game.state.marbles).toHaveLength(1);
-    expect(game.state.pool).toBe(19);
   });
 
   test('飄向離開玩家方位的道具消失', () => {
-    const game = createGame({ playerCount: 2, seed: 1, layout: () => [brickAt(376, 300), brickAt(160, 160)], dropChance: 1, powerUpKinds: ['supply'] });
-    game.step(1 / 60, [rightClick(400), at(400)]);
+    const game = createGame({ playerCount: 2, seed: 1, layout: () => [brickAt(376, 300), brickAt(160, 160)], dropChance: 1, powerUpKinds: ['pierce'] });
+    game.step(1 / 60, [fireAt(400), at(400)]);
     runUntil(game, () => game.state.powerUps.length > 0, at(400));
     expect(game.state.powerUps.map((p) => p.side).sort()).toEqual(['bottom', 'top']);
 
@@ -769,20 +725,22 @@ describe('玩家離開', () => {
     expect(game.state.powerUps.map((p) => p.side)).toEqual(['bottom']);
   });
 
-  test('過關補滿的彈珠池依剩下的人數計算', () => {
+  test('過關補滿剩下的玩家的發射量', () => {
     const game = createGame({ playerCount: 3, seed: 1, layout: (level) => (level === 1 ? [brickAt(376, 300)] : [brickAt(160, 160)]) });
-    game.step(1 / 60, [rightClick(400), at(400), at(400)]);
+    game.step(1 / 60, [fireAt(400), at(400), at(400)]);
     game.removePlayer('left');
+
+    game.state.players[1]!.charge = 0.5;
 
     runUntil(game, () => game.state.level === 2, at(400));
 
-    expect(game.state.pool).toBe(20);
+    expect(game.state.players.map((p) => p.charge)).toEqual([5, 5]);
   });
 
-  test('可以指定方位開局，彈珠池依人數計算', () => {
+  test('可以指定方位開局，每位玩家的發射量是滿的', () => {
     const game = createGame({ playerCount: 2, sides: ['bottom', 'left'], seed: 1, layout: cornerLayout });
 
     expect(game.state.players.map((p) => p.side)).toEqual(['bottom', 'left']);
-    expect(game.state.pool).toBe(20);
+    expect(game.state.players.map((p) => p.charge)).toEqual([5, 5]);
   });
 });

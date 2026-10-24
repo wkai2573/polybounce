@@ -4,8 +4,8 @@ import type { Brick, Game, GameOptions, Marble, Monster, PlayerInput, PlayerStat
 import { at } from './test-input.ts';
 
 const DT = 1 / 60;
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
-const leftClick = (x: number): PlayerInput => ({ ...at(x), primary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
+const leftClick = (x: number): PlayerInput => ({ ...at(x), fire: true });
 
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
 /** 躲在角落、不會擋到中線彈珠的磚塊，讓關卡不會一開始就算清空。 */
@@ -37,7 +37,6 @@ function kill(game: Game, side: Side) {
   const p = player(game, side);
   p.lives = 0;
   p.dead = true;
-  p.aiming = false;
 }
 
 /** 在某位玩家的核心上放一發會立刻打中的子彈。 */
@@ -50,7 +49,7 @@ function shootCore(game: Game, side: Side = 'bottom') {
 
 function launch(game: Game): Marble {
   const before = game.state.marbles.length;
-  step(game, 400, rightClick(400));
+  step(game, 400, fireAt(400));
   return game.state.marbles[before]!;
 }
 
@@ -80,7 +79,7 @@ describe('生命', () => {
     const game = newGame({ layout: (level) => (level === 1 ? [brickAt(376, 300)] : [cornerBrick()]) });
     game.state.players[0]!.lives = 1;
     game.state.players[0]!.invincible = 1;
-    step(game, 400, rightClick(400));
+    step(game, 400, fireAt(400));
 
     runUntil(game, () => game.state.level === 2);
 
@@ -91,13 +90,11 @@ describe('生命', () => {
 });
 
 describe('死亡', () => {
-  test('生命歸零就死亡：擋板位置與寬度停在當下，取消瞄準', () => {
+  test('生命歸零就死亡：擋板位置與寬度停在當下', () => {
     const game = newGame();
     step(game, 300);
     player(game, 'bottom').paddleEffect = { kind: 'widen', left: 5 };
     player(game, 'bottom').lives = 1;
-    step(game, 300, leftClick(300));
-    expect(player(game, 'bottom').aiming).toBe(true);
 
     shootCore(game);
     step(game, 300);
@@ -105,22 +102,20 @@ describe('死亡', () => {
     const p = player(game, 'bottom');
     expect(p.dead).toBe(true);
     expect(p.lives).toBe(0);
-    expect(p.aiming).toBe(false);
     expect(p.paddle).toBe(300);
   });
 
-  test('死亡的玩家不能移動、瞄準或發射', () => {
+  test('死亡的玩家不能移動或發射', () => {
     const game = newGame({ playerCount: 2 });
     kill(game, 'bottom');
-    const pool = game.state.pool;
+    const charge = player(game, 'bottom').charge;
 
-    game.step(DT, [{ pointer: { x: 700, y: 0 }, primary: true, secondary: true }, at(400)]);
-    game.step(DT, [{ pointer: { x: 700, y: 0 }, primary: true, secondary: false }, at(400)]);
+    game.step(DT, [{ pointer: { x: 700, y: 0 }, fire: true }, at(400)]);
+    game.step(DT, [{ pointer: { x: 700, y: 0 }, fire: true }, at(400)]);
 
     const p = player(game, 'bottom');
     expect(p.paddle).toBe(400);
-    expect(p.aiming).toBe(false);
-    expect(game.state.pool).toBe(pool);
+    expect(p.charge).toBe(charge);
     expect(game.state.marbles).toHaveLength(0);
   });
 
@@ -155,15 +150,15 @@ describe('死亡', () => {
     for (let t = 0; t < 8; t += DT) step(game, 700);
 
     expect(game.state.marbles).toHaveLength(0);
-    expect(game.state.pool).toBe(19);
+    expect(game.state.status).toBe('playing');
   });
 
   test('死亡玩家的方位不再掉落道具，已飄向他的道具消失', () => {
-    const game = newGame({ playerCount: 2, layout: () => [brickAt(376, 300), cornerBrick()], dropChance: 1, powerUpKinds: ['supply'] });
-    game.state.powerUps.push({ id: 900, batch: 99, kind: 'supply', side: 'top', pos: { x: 100, y: 300 } });
+    const game = newGame({ playerCount: 2, layout: () => [brickAt(376, 300), cornerBrick()], dropChance: 1, powerUpKinds: ['pierce'] });
+    game.state.powerUps.push({ id: 900, batch: 99, kind: 'pierce', side: 'top', pos: { x: 100, y: 300 } });
     kill(game, 'top');
 
-    step(game, 400, rightClick(400));
+    step(game, 400, fireAt(400));
     runUntil(game, () => game.state.bricks.length === 1, 5);
 
     expect(game.state.powerUps.every((p) => p.side === 'bottom')).toBe(true);
@@ -174,12 +169,11 @@ describe('死亡', () => {
   test('死亡的玩家接不到道具', () => {
     const game = newGame({ playerCount: 2 });
     kill(game, 'top');
-    game.state.pool = 3;
-    game.state.powerUps.push({ id: 900, batch: 99, kind: 'supply', side: 'top', pos: { x: 400, y: 10 } });
+    game.state.powerUps.push({ id: 900, batch: 99, kind: 'pierce', side: 'top', pos: { x: 400, y: 10 } });
 
     step(game);
 
-    expect(game.state.pool).toBe(3);
+    expect(game.state.effects.pierce).toBe(0);
     expect(game.state.powerUps).toHaveLength(0);
   });
 
@@ -251,14 +245,13 @@ describe('失敗', () => {
     expect(game.state.status).toBe('defeated');
   });
 
-  test('原有的失敗條件保留：彈珠池為空且場上沒有彈珠', () => {
+  test('發射量為零且場上沒有彈珠，只要有人活著就不會失敗', () => {
     const game = newGame({ playerCount: 2 });
-    game.state.pool = 0;
+    for (const p of game.state.players) p.charge = 0;
 
     step(game);
 
-    expect(game.state.status).toBe('defeated');
-    expect(game.state.players.every((p) => !p.dead)).toBe(true);
+    expect(game.state.status).toBe('playing');
   });
 
   test('最後一位玩家死亡的同一步清空了關卡，仍然算失敗，不會被過關的復活蓋掉', () => {
@@ -290,14 +283,14 @@ describe('失敗', () => {
   });
 });
 
-describe('過關時的復活與彈珠池', () => {
+describe('過關時的復活與發射量', () => {
   const twoLevels = (level: number) => (level === 1 ? [brickAt(376, 300)] : [cornerBrick()]);
 
   test('死亡的玩家一起復活並補滿生命，復活進度清除', () => {
     const game = newGame({ playerCount: 2, layout: twoLevels });
     kill(game, 'top');
     player(game, 'top').revive = 3;
-    step(game, 400, rightClick(400));
+    step(game, 400, fireAt(400));
 
     runUntil(game, () => game.state.level === 2);
 
@@ -309,14 +302,15 @@ describe('過關時的復活與彈珠池', () => {
     expect(game.state.status).toBe('playing');
   });
 
-  test('彈珠池依有座位的玩家數補滿，包含死亡的人', () => {
+  test('每位玩家的發射量補滿，包含死亡的人', () => {
     const game = newGame({ playerCount: 3, layout: twoLevels });
     kill(game, 'left');
-    step(game, 400, rightClick(400));
+    step(game, 400, fireAt(400));
+    player(game, 'top').charge = 0.5;
 
     runUntil(game, () => game.state.level === 2);
 
-    expect(game.state.pool).toBe(30);
+    for (const p of game.state.players) expect(p.charge).toBeGreaterThan(4.9);
   });
 
   test('玩家連線中斷離開時，該方位變成沒有屍體的牆，不論死活', () => {
@@ -347,7 +341,7 @@ describe('屍體復活', () => {
 
   /** 把彈珠直接放在上牆附近，下一步就會撞上去。 */
   function marbleAtWall(game: Game, x: number, id = 500): Marble {
-    const m: Marble = { id, pos: { x, y: 12 }, vel: { x: 0, y: -420 } };
+    const m: Marble = { id, pos: { x, y: 12 }, vel: { x: 0, y: -420 }, power: 1 };
     game.state.marbles.push(m);
     return m;
   }
@@ -434,7 +428,7 @@ describe('屍體復活', () => {
     game.state.marbles = [];
 
     // 彈珠飛向上方，上方擋板在 x=400，彈珠在 x=100：被漏接而消失。
-    game.state.marbles.push({ id: 600, pos: { x: 100, y: 200 }, vel: { x: 0, y: -420 } });
+    game.state.marbles.push({ id: 600, pos: { x: 100, y: 200 }, vel: { x: 0, y: -420 }, power: 1 });
     for (let t = 0; t < 2; t += DT) step(game);
 
     expect(game.state.marbles).toHaveLength(0);
@@ -450,7 +444,7 @@ describe('屍體復活', () => {
   }
 
   test('復活後道具掉落恢復：朝復活玩家的方位也掉', () => {
-    const game = newGame({ playerCount: 2, layout: () => [brickAt(376, 300), cornerBrick()], dropChance: 1, powerUpKinds: ['supply'] });
+    const game = newGame({ playerCount: 2, layout: () => [brickAt(376, 300), cornerBrick()], dropChance: 1, powerUpKinds: ['pierce'] });
     kill(game, 'top');
     reviveTop(game);
 

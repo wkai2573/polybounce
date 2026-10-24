@@ -1,19 +1,20 @@
 import {
-  AIM_MIN_ANGLE_DEG,
   ARENA_SIZE,
   BOSS_BULLET_RADIUS,
   BULLET_RADIUS,
   CORE_SIZE,
+  MAX_CHARGE,
   PADDLE_THICKNESS,
   POWERUP_RADIUS,
   REVIVE_HITS,
   SIDE_ORDER,
 } from '../core/config.ts';
 import { marbleRadius } from '../core/effects.ts';
-import { aimDirection, isWall, pointAt } from '../core/geometry.ts';
-import { launchPoint, paddleWidth } from '../core/paddle.ts';
+import { isWall, pointAt } from '../core/geometry.ts';
+import { paddleWidth } from '../core/paddle.ts';
 import type { GameState, PlayerState, Side, Vec2 } from '../core/types.ts';
-import { POWERUP_STYLE, SIDE_COLORS } from './palette.ts';
+import { marbleColor, POWERUP_STYLE, SIDE_COLORS } from './palette.ts';
+import { viewAngle } from './view.ts';
 
 const MONSTER_COLOR = '#c26bff';
 // BOSS 本體是深紅，和敵方子彈同屬紅色系；橘色只留給貫通。
@@ -25,6 +26,18 @@ const PIERCE_MARBLE_COLOR = '#ff9d4f';
 const CORPSE_COLOR = '#8a93a6';
 
 const BRICK_COLORS = ['#ff5c7a', '#ffa14f', '#ffe14f', '#7dffb0'];
+
+/** 目前這一幀場地旋轉的弧度；場地裡的文字要反向轉回來，才不會跟著轉倒。 */
+let rotation = 0;
+
+/** 在場地座標 (x, y) 畫正向的文字，不論場地怎麼旋轉。 */
+function uprightText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-rotation);
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
 
 function glow(ctx: CanvasRenderingContext2D, color: string, blur = 14) {
   ctx.shadowColor = color;
@@ -47,14 +60,39 @@ function fillBand(ctx: CanvasRenderingContext2D, side: Side, a0: number, a1: num
   ctx.fillRect(Math.min(p.x, q.x), Math.min(p.y, q.y), Math.abs(p.x - q.x), Math.abs(p.y - q.y));
 }
 
-/** 活著的擋板：本體、中央的核心與核心內側的生命圓點，都隨擋板深度畫在正確位置。 */
+/** 同 fillBand，但只畫外框。 */
+function strokeBand(ctx: CanvasRenderingContext2D, side: Side, a0: number, a1: number, d0: number, d1: number) {
+  const p = pointAt(side, a0, d0);
+  const q = pointAt(side, a1, d1);
+  ctx.strokeRect(Math.min(p.x, q.x), Math.min(p.y, q.y), Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+}
+
+/**
+ * 擋板兼作發射條：等分五格，每滿一格就是一顆可發射；正在恢復的那格依進度沿邊從小到大填色，
+ * 沒填到的部分只畫外框，所以沒有彈珠時擋板是中空的。每位玩家的擋板都顯示各自的發射量。
+ */
+function drawPaddleBody(ctx: CanvasRenderingContext2D, p: PlayerState, color: string) {
+  const half = paddleWidth(p) / 2;
+  const cell = paddleWidth(p) / MAX_CHARGE;
+  const d0 = p.depth;
+  const d1 = p.depth + PADDLE_THICKNESS;
+  for (let i = 0; i < MAX_CHARGE; i++) {
+    const a0 = p.paddle - half + i * cell;
+    const filled = Math.min(1, Math.max(0, p.charge - i));
+    ctx.save();
+    glow(ctx, color, 16);
+    if (filled > 0) fillBand(ctx, p.side, a0, a0 + cell * filled, d0, d1);
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.5;
+    strokeBand(ctx, p.side, a0 + 0.75, a0 + cell - 0.75, d0 + 0.75, d1 - 0.75);
+    ctx.restore();
+  }
+}
+
+/** 活著的擋板：本體（兼作發射條）、中央的核心與核心內側的生命圓點，都隨擋板深度畫在正確位置。 */
 function drawPaddle(ctx: CanvasRenderingContext2D, p: PlayerState) {
   const color = SIDE_COLORS[p.side];
-  ctx.save();
-  glow(ctx, color, 16);
-  const r = paddleRect(p);
-  ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.restore();
+  drawPaddleBody(ctx, p, color);
 
   // 核心：大小固定，無敵時閃爍。
   const half = CORE_SIZE / 2;
@@ -94,18 +132,24 @@ function drawCorpse(ctx: CanvasRenderingContext2D, p: PlayerState) {
   ctx.font = 'bold 14px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`${p.revive}/${REVIVE_HITS}`, label.x, label.y);
+  uprightText(ctx, `${p.revive}/${REVIVE_HITS}`, label.x, label.y);
   ctx.restore();
 }
 
 /**
- * pointer 是本機玩家的指標，localSide 是本機玩家的方位。瞄準線只畫本機玩家的，
- * 因為其他人的瞄準方向只有他們自己的指標知道。
+ * pointer 是本機玩家的指標（場地座標），準星畫在這裡。viewSide 是本機玩家的方位：整個場地依它旋轉，
+ * 讓自己的方位在畫面下方；關卡與分數這類資訊列、場地裡的文字都維持正向。
  */
-export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: Vec2, localSide: Side | null) {
+export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: Vec2, viewSide: Side = 'bottom') {
+  rotation = viewAngle(viewSide);
   ctx.clearRect(0, 0, ARENA_SIZE, ARENA_SIZE);
   ctx.fillStyle = '#05060f';
   ctx.fillRect(0, 0, ARENA_SIZE, ARENA_SIZE);
+
+  ctx.save();
+  ctx.translate(ARENA_SIZE / 2, ARENA_SIZE / 2);
+  ctx.rotate(rotation);
+  ctx.translate(-ARENA_SIZE / 2, -ARENA_SIZE / 2);
 
   ctx.save();
   glow(ctx, '#6a7bff', 10);
@@ -125,14 +169,13 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
   // 文字也排在擋板厚度之外，不與上方玩家的擋板重疊。
   const hudY = PADDLE_THICKNESS + 8;
   ctx.save();
+  ctx.resetTransform();
   ctx.fillStyle = '#cfe8ff';
   ctx.font = '20px system-ui, sans-serif';
   ctx.textBaseline = 'top';
   ctx.fillText(`第 ${state.level} 關`, 24, hudY);
   ctx.textAlign = 'center';
   ctx.fillText(`分數 ${state.score}`, ARENA_SIZE / 2, hudY);
-  ctx.textAlign = 'right';
-  ctx.fillText(`彈珠 ${state.pool}`, ARENA_SIZE - 24, hudY);
   ctx.restore();
 
   for (const brick of state.bricks) {
@@ -169,7 +212,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.font = `bold ${monster.boss ? 28 : 20}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(monster.hp), x, y);
+    uprightText(ctx, String(monster.hp), x, y);
     ctx.restore();
 
     // 血量條
@@ -184,7 +227,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
       ctx.font = 'bold 14px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('BOSS', x, barY - 3);
+      uprightText(ctx, 'BOSS', x, barY - 3);
     }
     ctx.restore();
   }
@@ -192,20 +235,6 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
   for (const p of state.players) {
     if (p.dead) drawCorpse(ctx, p);
     else drawPaddle(ctx, p);
-
-    if (p.aiming && p.side === localSide) {
-      const from = launchPoint(p, marbleRadius(state));
-      const dir = aimDirection(p.side, from, pointer, AIM_MIN_ANGLE_DEG);
-      ctx.save();
-      glow(ctx, SIDE_COLORS[p.side], 6);
-      ctx.setLineDash([8, 10]);
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(from.x + dir.x * 260, from.y + dir.y * 260);
-      ctx.stroke();
-      ctx.restore();
-    }
   }
 
   for (const pu of state.powerUps) {
@@ -226,7 +255,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.font = `bold ${pu.kind === 'burst' ? 13 : 12}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, pu.pos.x, pu.pos.y + 1);
+    uprightText(ctx, label, pu.pos.x, pu.pos.y + 1);
     ctx.restore();
   }
 
@@ -244,19 +273,19 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.restore();
   }
 
-  // 彈珠是白色；整場貫通期間全部彈珠改色並帶更大的光暈，一眼分得出來。半徑由整場的大小效果決定。
+  // 彈珠的半徑與顏色隨攻擊力成長：白色漸變到金黃再到亮紫；整場貫通期間全部彈珠改成橘色並帶更大的光暈，一眼分得出來。
   const pierced = state.effects.pierce > 0;
-  const radius = marbleRadius(state);
   ctx.save();
-  glow(ctx, pierced ? PIERCE_MARBLE_COLOR : '#ffffff', pierced ? 26 : 16);
   for (const m of state.marbles) {
+    glow(ctx, pierced ? PIERCE_MARBLE_COLOR : marbleColor(m.power), pierced ? 26 : 16);
     ctx.beginPath();
-    ctx.arc(m.pos.x, m.pos.y, radius, 0, Math.PI * 2);
+    ctx.arc(m.pos.x, m.pos.y, marbleRadius(m), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
 
   drawCrosshair(ctx, pointer);
+  ctx.restore();
 }
 
 /**

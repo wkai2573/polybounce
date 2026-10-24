@@ -37,7 +37,7 @@ export function createMonsterStage(state: GameState, rng: () => number) {
 }
 
 /**
- * 怪物碰撞：一般彈珠沿圓心連線的法線反彈，怪物扣一點血；整場貫通期間彈珠穿過去，每次進入扣一點血，
+ * 怪物碰撞：一般彈珠沿圓心連線的法線反彈，怪物扣血；整場貫通期間彈珠穿過去，每次進入扣血，每次扣的血量都等於彈珠的攻擊力，
  * 離開後再進入才會再扣。血量歸零時移除並得分。血量每降到一個門檻以下就掉落一次道具，每個門檻只掉一次。
  */
 export function createMonsterCollider(state: GameState, dropper: Dropper): MarbleCollider {
@@ -56,8 +56,8 @@ export function createMonsterCollider(state: GameState, dropper: Dropper): Marbl
   // 貫通的彈珠目前正與哪些怪物重疊，同樣只是過程，不放進快照。
   const overlapping = new WeakMap<Marble, Set<Monster>>();
 
-  function damage(monster: Monster) {
-    monster.hp -= 1;
+  function damage(monster: Monster, power: number) {
+    monster.hp -= power;
     dropForThresholds(monster);
     if (monster.hp <= 0) {
       state.score += monster.maxHp * MONSTER_SCORE_PER_HP;
@@ -73,7 +73,7 @@ export function createMonsterCollider(state: GameState, dropper: Dropper): Marbl
     for (const monster of state.monsters.slice()) {
       if (Math.hypot(m.pos.x - monster.pos.x, m.pos.y - monster.pos.y) >= reachOf(monster, radius)) continue;
       now.add(monster);
-      if (!before?.has(monster)) damage(monster);
+      if (!before?.has(monster)) damage(monster, m.power);
     }
     overlapping.set(m, now);
   }
@@ -95,13 +95,13 @@ export function createMonsterCollider(state: GameState, dropper: Dropper): Marbl
       m.pos.x = monster.pos.x + nx * reach;
       m.pos.y = monster.pos.y + ny * reach;
 
-      damage(monster);
+      damage(monster, m.power);
       return;
     }
   }
 
   return (m) => {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     if (isPiercing(state)) {
       pierceThrough(m, radius);
     } else {

@@ -14,14 +14,14 @@ const distanceTo = (m: Marble, brick: Brick) => {
 
 /**
  * 磚塊碰撞：一般彈珠每一小段最多撞一塊磚，沿著穿透比較淺的那個軸反彈；
- * 整場貫通期間，彈珠穿過磚塊不反彈，每進入一塊磚扣一點血。磚塊碎裂時得分與機率掉落道具。
+ * 整場貫通期間，彈珠穿過磚塊不反彈，每進入一塊磚扣血。每次扣的血量都等於彈珠的攻擊力。磚塊碎裂時得分與機率掉落道具。
  */
 export function createBrickCollider(state: GameState, dropper: Dropper): MarbleCollider {
   // 貫通的彈珠目前正與哪些磚塊重疊，只是碰撞的過程，不屬於遊戲狀態，所以不放進快照。
   const overlapping = new WeakMap<Marble, Set<Brick>>();
 
-  function damage(brick: Brick) {
-    brick.hp -= 1;
+  function damage(brick: Brick, power: number) {
+    brick.hp -= power;
     if (brick.hp <= 0) {
       state.score += brick.maxHp * SCORE_PER_HP;
       state.bricks = state.bricks.filter((b) => b !== brick);
@@ -36,7 +36,7 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
     for (const brick of state.bricks.slice()) {
       if (distanceTo(m, brick) >= radius) continue;
       now.add(brick);
-      if (!before?.has(brick)) damage(brick);
+      if (!before?.has(brick)) damage(brick, m.power);
     }
     overlapping.set(m, now);
   }
@@ -65,13 +65,13 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
         m.pos.y = cy + ny * radius;
       }
 
-      damage(brick);
+      damage(brick, m.power);
       return;
     }
   }
 
   return (m) => {
-    const radius = marbleRadius(state);
+    const radius = marbleRadius(m);
     if (isPiercing(state)) {
       pierceThrough(m, radius);
     } else {

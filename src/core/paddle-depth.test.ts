@@ -28,11 +28,10 @@ function kill(game: Game, side: Side) {
   const p = player(game, side);
   p.lives = 0;
   p.dead = true;
-  p.aiming = false;
 }
 
-const addMarble = (game: Game, marble: Omit<Marble, 'id'>): Marble => {
-  const m = { id: 5000 + game.state.marbles.length, ...marble };
+const addMarble = (game: Game, marble: Omit<Marble, 'id' | 'power'>): Marble => {
+  const m = { id: 5000 + game.state.marbles.length, power: 1, ...marble };
   game.state.marbles.push(m);
   return m;
 };
@@ -112,36 +111,7 @@ describe('擋板深度：由指標離自己那一邊的距離決定', () => {
   });
 });
 
-describe('擋板深度：瞄準與死亡', () => {
-  test('瞄準模式下沿邊位置與深度都鎖住，取消後恢復跟隨指標', () => {
-    const game = newGame();
-    stepWith(game, { ...atDepth(300, 40), primary: true });
-    expect(player(game).aiming).toBe(true);
-
-    stepWith(game, atDepth(500, 90));
-    expect(player(game).paddle).toBe(300);
-    expect(player(game).depth).toBe(40);
-
-    stepWith(game, { ...atDepth(500, 90), secondary: true });
-    stepWith(game, atDepth(500, 90));
-    expect(player(game).aiming).toBe(false);
-    expect(player(game).paddle).toBe(500);
-    expect(player(game).depth).toBe(90);
-  });
-
-  test('瞄準後發射，擋板恢復跟隨指標', () => {
-    const game = newGame();
-    stepWith(game, { ...atDepth(300, 40), primary: true });
-
-    stepWith(game, { ...atDepth(300, 40), primary: true });
-    stepWith(game, atDepth(350, 20));
-
-    expect(player(game).aiming).toBe(false);
-    expect(game.state.marbles).toHaveLength(1);
-    expect(player(game).paddle).toBe(350);
-    expect(player(game).depth).toBe(20);
-  });
-
+describe('擋板深度：死亡', () => {
   test('死亡玩家不再接收輸入，深度停在死亡時的值', () => {
     const game = newGame({ playerCount: 2 });
     step(game, 400, { bottom: atDepth(400, 60) });
@@ -173,7 +143,7 @@ describe('擋板深度：彈珠', () => {
     const game = newGame();
     stepWith(game, atDepth(400, 100));
 
-    stepWith(game, { ...atDepth(400, 100), secondary: true });
+    stepWith(game, { ...atDepth(400, 100), fire: true });
 
     // 表面在 800 - 100 - 12 = 688，再往場內退彈珠半徑 6 加 1。
     expect(game.state.marbles[0]!.pos.y).toBeLessThan(688 - 6);
@@ -183,7 +153,7 @@ describe('擋板深度：彈珠', () => {
   test('深度為零時的發射起點和原本一樣貼著邊緣', () => {
     const game = newGame();
 
-    stepWith(game, { ...at(400), secondary: true });
+    stepWith(game, { ...at(400), fire: true });
 
     expect(game.state.marbles[0]!.pos.y).toBeGreaterThan(770);
     expect(game.state.marbles[0]!.pos.y).toBeLessThan(800 - 12);

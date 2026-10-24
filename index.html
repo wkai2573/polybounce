@@ -26,20 +26,20 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--panel-gap);
       }
-      /* 場地是正方形，縮放時要扣掉面板所佔的空間：寬螢幕扣寬度，窄螢幕或直向扣高度。 */
+      /* 場地是正方形，固定在視窗正中央。寬螢幕時左右各預留一個面板寬度，讓浮在場地右邊的面板不會蓋到場地。 */
       #wrap {
         position: relative;
         flex: none;
-        width: min(100vw - var(--panel-w) - var(--panel-gap), 100vh);
-        height: min(100vw - var(--panel-w) - var(--panel-gap), 100vh);
+        width: min(100vw - 2 * (var(--panel-w) + var(--panel-gap)), 100vh);
+        height: min(100vw - 2 * (var(--panel-w) + var(--panel-gap)), 100vh);
       }
+      /* 效果面板浮在場地右邊，不佔用版面，所以不會把場地推離中央。 */
       #effects {
-        flex: none;
+        position: absolute;
+        top: var(--panel-gap);
+        left: calc(50% + min(100vw - 2 * (var(--panel-w) + var(--panel-gap)), 100vh) / 2 + var(--panel-gap));
         width: var(--panel-w);
-        align-self: flex-start;
-        margin-top: var(--panel-gap);
         display: flex;
         flex-direction: column;
         gap: 14px;
@@ -93,18 +93,19 @@
         opacity: 0.55;
         filter: grayscale(1);
       }
+      /* 窄螢幕或直向：面板移到場地下方，場地與面板合起來置中。 */
       @media (orientation: portrait), (max-width: 760px) {
         #stage {
           flex-direction: column;
-          justify-content: flex-start;
+          justify-content: center;
+          gap: var(--panel-gap);
         }
         #wrap {
           width: min(100vw, 100vh - var(--panel-h) - var(--panel-gap));
           height: min(100vw, 100vh - var(--panel-h) - var(--panel-gap));
         }
         #effects {
-          align-self: auto;
-          margin-top: 0;
+          position: static;
           width: min(100vw - 2 * var(--panel-gap), 480px);
           height: var(--panel-h);
           overflow-y: auto;

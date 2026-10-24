@@ -5,7 +5,7 @@ import { generateLevel, generateMonsters, isBossLevel } from './level.ts';
 import type { PlayerInput } from './types.ts';
 import { at } from './test-input.ts';
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 
 describe('起始關卡', () => {
   test('預設從第 1 關開始，狀態記錄這一局的起點是第 1 關', () => {
@@ -33,10 +33,10 @@ describe('起始關卡', () => {
     expect(state.monsters[0]!.boss).toBe(true);
   });
 
-  test('彈珠池依玩家人數補滿，場上沒有彈珠，分數從 0 開始', () => {
+  test('所有玩家的發射量是滿的，場上沒有彈珠，分數從 0 開始', () => {
     const { state } = createGame({ playerCount: 3, seed: 1, startLevel: 20 });
 
-    expect(state.pool).toBe(30);
+    expect(state.players.map((p) => p.charge)).toEqual([5, 5, 5]);
     expect(state.marbles).toHaveLength(0);
     expect(state.score).toBe(0);
     expect(state.status).toBe('playing');
@@ -45,7 +45,7 @@ describe('起始關卡', () => {
   test('彈珠速度依起始關卡計算', () => {
     const game = createGame({ playerCount: 1, seed: 1, startLevel: 11 });
 
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
 
     const v = game.state.marbles[0]!.vel;
     // 第 11 關比第 1 關快 10 × 3% = 30%。
@@ -79,7 +79,7 @@ describe('起始關卡', () => {
       layout: (level) => (level === 4 ? [{ id: 0, x: 376, y: 300, w: 48, h: 24, hp: 1, maxHp: 1 }] : [{ id: 0, x: 160, y: 160, w: 48, h: 24, hp: 1000, maxHp: 1000 }]),
       monsters: () => [],
     });
-    game.step(1 / 60, [rightClick(400)]);
+    game.step(1 / 60, [fireAt(400)]);
     for (let t = 0; t < 5 && game.state.level === 4; t += 1 / 60) game.step(1 / 60, [at(400)]);
 
     expect(game.state.level).toBe(5);

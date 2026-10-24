@@ -1,9 +1,10 @@
-import { MARBLES_PER_PLAYER, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './config.ts';
+import { MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './config.ts';
 import { generateLevel, generateMonsters } from './level.ts';
 import { createPlayer } from './paddle.ts';
 import { createRng } from './rng.ts';
 import { createBrickCollider } from './stages/bricks.ts';
 import { createBulletStage } from './stages/bullets.ts';
+import { createChargeStage } from './stages/charge.ts';
 import { createInputStage } from './stages/input.ts';
 import { createMarbleStage } from './stages/marbles.ts';
 import { createMonsterCollider, createMonsterStage } from './stages/monsters.ts';
@@ -21,14 +22,13 @@ export function createGame(options: GameOptions): Game {
     level: startLevel,
     startLevel: options.runStartLevel ?? startLevel,
     score: 0,
-    pool: MARBLES_PER_PLAYER * sides.length,
     marbles: [],
     bricks: layout(startLevel),
     monsters: monsters(startLevel),
     bullets: [],
     powerUps: [],
     players: sides.map(createPlayer),
-    effects: { pierce: 0, marbleSize: null },
+    effects: { pierce: 0 },
   };
 
   let marbleCount = 0;
@@ -36,6 +36,7 @@ export function createGame(options: GameOptions): Game {
   const dropper = createDropper(state, options.seed, options);
   const applyInputs = createInputStage(state, nextMarbleId);
   const rng = createRng(options.seed);
+  const advanceCharge = createChargeStage(state);
   const advanceMonsters = createMonsterStage(state, rng);
   const advanceBullets = createBulletStage(state, rng);
   const advanceMarbles = createMarbleStage(state, [
@@ -49,6 +50,7 @@ export function createGame(options: GameOptions): Game {
     state,
     step(dt, inputs) {
       applyInputs(inputs);
+      advanceCharge(dt);
       advanceMonsters(dt);
       advanceBullets(dt);
       advanceMarbles(dt);

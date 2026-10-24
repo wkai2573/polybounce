@@ -20,11 +20,11 @@ export interface Summary {
   status: GameState['status'];
   level: number;
   score: number;
-  pool: number;
+  /** 每位玩家的發射量，用方位對照；發射的那一步會比前一步少約一顆。 */
+  charge: Map<string, number>;
   marbles: number;
-  /** 整場貫通與彈珠大小效果的剩餘秒數；只有接到對應的道具時才會變長。 */
+  /** 整場貫通的剩餘秒數；只有接到對應的道具時才會變長。 */
   pierce: number;
-  marbleSize: number;
   /** 磚塊與怪物目前的血量，用編號對照。 */
   targets: Map<string, number>;
   /** 每位玩家的擋板寬度效果剩餘秒數與生命，用方位對照。 */
@@ -41,10 +41,9 @@ export function summarize(state: GameState): Summary {
     status: state.status,
     level: state.level,
     score: state.score,
-    pool: state.pool,
     marbles: state.marbles.length,
+    charge: new Map(state.players.map((p) => [p.side, p.charge])),
     pierce: state.effects.pierce,
-    marbleSize: state.effects.marbleSize?.left ?? 0,
     targets,
     paddleEffect: new Map(state.players.map((p) => [p.side, p.paddleEffect?.left ?? 0])),
     lives: new Map(state.players.map((p) => [p.side, p.lives])),
@@ -58,6 +57,19 @@ const rose = (before: Map<string, number>, after: Map<string, number>) =>
 /** 方位對照中，由 from 變成 to 的方位；沒有出現在前一份的方位不算。 */
 const flipped = (before: Map<string, boolean>, after: Map<string, boolean>, from: boolean) =>
   [...after].some(([side, value]) => before.get(side) === from && value === !from);
+
+/**
+ * 兩個摘要之間發射了幾顆：發射量會恢復也會被消耗，每發射一顆就少約一顆，
+ * 恢復只是緩慢地增加，所以把各玩家減少的量加總再四捨五入。
+ */
+function launchesBetween(prev: Summary, next: Summary): number {
+  let dropped = 0;
+  for (const [side, charge] of next.charge) {
+    const before = prev.charge.get(side);
+    if (before !== undefined && before > charge) dropped += before - charge;
+  }
+  return Math.round(dropped);
+}
 
 /**
  * 從前後兩個摘要推導該播哪些音效。事件由狀態的變化推得，所以單人、房主與其他玩家端
@@ -79,18 +91,17 @@ export function deriveEvents(prev: Summary | null, next: Summary): SfxEvent[] {
   if (!sameLevel) hits = 1;
   if (hits > 0) events.push({ kind: 'hit', count: hits });
 
-  const launches = sameLevel ? Math.max(0, prev.pool - next.pool) : 0;
+  const launches = sameLevel ? launchesBetween(prev, next) : 0;
   if (launches > 0) events.push({ kind: 'launch', count: launches });
 
   if (sameLevel) {
-    const supplied = next.pool > prev.pool;
     const reshaped = rose(prev.paddleEffect, next.paddleEffect);
     // 多球與環爆：場上彈珠的增加量超過發射的顆數。
     const multiplied = next.marbles - prev.marbles - launches >= 2;
-    const fieldEffect = next.pierce > prev.pierce || next.marbleSize > prev.marbleSize;
+    const fieldEffect = next.pierce > prev.pierce;
     // 補血：活著的玩家生命增加。復活也會讓生命增加，但那是另一種事件。
     const healed = [...next.lives].some(([side, lives]) => lives > (prev.lives.get(side) ?? 0) && prev.dead.get(side) === false);
-    if (supplied || reshaped || multiplied || fieldEffect || healed) events.push({ kind: 'pickup' });
+    if (reshaped || multiplied || fieldEffect || healed) events.push({ kind: 'pickup' });
 
     const died = flipped(prev.dead, next.dead, false);
     // 死亡的那一下生命也會減少，只播死亡音效。

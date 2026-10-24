@@ -61,7 +61,7 @@ function parseInput(message: ClientMessage): PlayerInput | null {
   const input = message.input;
   if (!input || !input.pointer) return null;
   if (!isNumber(input.pointer.x) || !isNumber(input.pointer.y)) return null;
-  return { pointer: { x: input.pointer.x, y: input.pointer.y }, primary: input.primary === true, secondary: input.secondary === true };
+  return { pointer: { x: input.pointer.x, y: input.pointer.y }, fire: input.fire === true };
 }
 
 export function createHostSession(options: HostSessionOptions = {}): HostSession {
@@ -77,7 +77,7 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
 
   /** 還沒收到輸入時的指標：自己那一邊邊緣的正中央。 */
   function neutral(side: Side = 'bottom'): PlayerInput {
-    return { pointer: pointAt(side, ARENA_SIZE / 2, 0), primary: false, secondary: false };
+    return { pointer: pointAt(side, ARENA_SIZE / 2, 0), fire: false };
   }
 
   const emitChange = () => changeHandlers.forEach((h) => h());
@@ -104,18 +104,16 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
     const input = parseInput(message);
     if (!input) return;
     const pending = member.input;
-    const hasEdge = pending.primary || pending.secondary;
+    const hasEdge = pending.fire;
     // 有按鍵還沒被讀走時，保留按下當下的指標位置，不讓之後的移動蓋掉它。
     if (!hasEdge) pending.pointer = input.pointer;
-    pending.primary ||= input.primary;
-    pending.secondary ||= input.secondary;
+    pending.fire ||= input.fire;
   }
 
   /** 把累積的輸入交給遊戲，並清掉按鍵邊緣；指標位置保留到下一次輸入。 */
   function take(member: Member): PlayerInput {
-    const out = { pointer: { ...member.input.pointer }, primary: member.input.primary, secondary: member.input.secondary };
-    member.input.primary = false;
-    member.input.secondary = false;
+    const out = { pointer: { ...member.input.pointer }, fire: member.input.fire };
+    member.input.fire = false;
     return out;
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { MARBLE_SIZE_DURATION, PIERCE_DURATION, SHORTEN_DURATION, WIDEN_DURATION } from '../core/config.ts';
+import { PIERCE_DURATION, SHORTEN_DURATION, WIDEN_DURATION } from '../core/config.ts';
 import { createGame } from '../core/game.ts';
 import type { GameState, PlayerState, Side } from '../core/types.ts';
 import { deriveEffectPanel } from './effect-panel.ts';
@@ -25,25 +25,13 @@ describe('效果面板：全隊區', () => {
     expect(team).toEqual([{ label: '貫通', color: POWERUP_STYLE.pierce.color, ratio: 0.5, seconds: 1.5 }]);
   });
 
-  test('放大彈珠與縮小彈珠各自對應正確的名稱與道具顏色', () => {
+  test('全隊區只有貫通：沒有貫通時整區是空的', () => {
     const state = stateWith();
-    state.effects.marbleSize = { kind: 'enlarge', left: MARBLE_SIZE_DURATION };
-    expect(deriveEffectPanel(state, 'bottom').team).toEqual([
-      { label: '放大彈珠', color: POWERUP_STYLE.enlarge.color, ratio: 1, seconds: MARBLE_SIZE_DURATION },
-    ]);
 
-    state.effects.marbleSize = { kind: 'shrink', left: 1.5 };
-    expect(deriveEffectPanel(state, 'bottom').team).toEqual([
-      { label: '縮小彈珠', color: POWERUP_STYLE.shrink.color, ratio: 0.25, seconds: 1.5 },
-    ]);
-  });
+    expect(deriveEffectPanel(state, 'bottom').team).toEqual([]);
 
-  test('貫通與彈珠大小同時生效時，依序是貫通、彈珠大小', () => {
-    const state = stateWith();
-    state.effects.marbleSize = { kind: 'shrink', left: 3 };
     state.effects.pierce = 2;
-
-    expect(deriveEffectPanel(state, 'bottom').team.map((r) => r.label)).toEqual(['貫通', '縮小彈珠']);
+    expect(deriveEffectPanel(state, 'bottom').team.map((r) => r.label)).toEqual(['貫通']);
   });
 
   test('剩餘秒數取一位小數', () => {
@@ -132,7 +120,7 @@ describe('效果面板：各玩家區', () => {
     t.paddleEffect = { kind: 'widen', left: 4.2 };
     t.dead = true;
     t.lives = 0;
-    for (let i = 0; i < 120; i++) game.step(1 / 60, game.state.players.map(() => ({ pointer: { x: 400, y: 0 }, primary: false, secondary: false })));
+    for (let i = 0; i < 120; i++) game.step(1 / 60, game.state.players.map(() => ({ pointer: { x: 400, y: 0 }, fire: false })));
     const after = deriveEffectPanel(game.state, 'bottom').players;
 
     expect(before).toEqual([{ side: 'top', label: '加寬', color: POWERUP_STYLE.widen.color, ratio: 4.2 / WIDEN_DURATION, seconds: 4.2, self: false, dead: true }]);

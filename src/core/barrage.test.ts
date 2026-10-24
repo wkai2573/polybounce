@@ -4,7 +4,7 @@ import { createGame } from './game.ts';
 import type { Brick, Bullet, BulletSource, Game, GameOptions, Monster, PlayerInput } from './types.ts';
 import { at } from './test-input.ts';
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 const DT = 1 / 60;
 
 const cornerBrick = (): Brick => ({ id: 99, x: 160, y: 160, w: 48, h: 24, hp: 100000, maxHp: 100000 });
@@ -259,7 +259,7 @@ describe('BOSS 彈幕：子彈上限與其他規則', () => {
   test('彈幕不影響彈珠的物理', () => {
     const control = newGame(() => []);
     const barrage = bossGame();
-    for (const game of [control, barrage]) game.step(DT, [rightClick(400)]);
+    for (const game of [control, barrage]) game.step(DT, [fireAt(400)]);
 
     for (let i = 0; i < 180; i++) {
       // 把 BOSS 放在遠離彈珠路徑的地方。

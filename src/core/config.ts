@@ -11,8 +11,15 @@ export const BRICK_W = 48;
 export const BRICK_H = 24;
 export const BRICK_COLS = 10;
 
-export const MARBLES_PER_PLAYER = 10;
+/** 每位玩家的發射量：最大顆數與每秒恢復的顆數。發射一顆消耗一顆。 */
+export const MAX_CHARGE = 5;
+export const CHARGE_REGEN_PER_SECOND = 1;
+/** 發射量累加小數時的誤差容許，避免六十次 1/60 加起來差一點點就不到一顆。 */
+export const CHARGE_EPSILON = 1e-6;
 export const MARBLE_RADIUS = 6;
+/** 攻擊力每多一點，半徑多基礎半徑的這個比例；倍數上限為 MARBLE_RADIUS_MAX_FACTOR，攻擊力九以上固定為上限。 */
+export const MARBLE_RADIUS_GROWTH = 0.12;
+export const MARBLE_RADIUS_MAX_FACTOR = 2;
 export const MARBLE_BASE_SPEED = 420;
 /** 速度隨關卡小幅增加，但不超過基礎速度的這個倍數。 */
 export const MARBLE_SPEED_PER_LEVEL = 0.03;
@@ -24,9 +31,6 @@ export const PADDLE_THICKNESS = 12;
 export const PADDLE_MAX_DEPTH = 100;
 /** 擋板反彈時，擊中邊緣的最大偏離角度（度）。 */
 export const PADDLE_MAX_BOUNCE_DEG = 60;
-
-/** 瞄準方向與自己那一邊的表面至少夾這個角度（度）。 */
-export const AIM_MIN_ANGLE_DEG = 15;
 
 /** 擊碎一塊磚得到的分數，乘以該磚的最大血量。 */
 export const SCORE_PER_HP = 10;
@@ -94,10 +98,6 @@ export const BOSS_SPIRAL_TURN_DEG = 14;
 export const POWERUP_SPEED = 90;
 export const POWERUP_RADIUS = 12;
 
-/** 補給增加的彈珠數，彈珠池上限是人數乘以 POOL_CAP_PER_PLAYER。 */
-export const SUPPLY_AMOUNT = 5;
-export const POOL_CAP_PER_PLAYER = 20;
-
 /** 擋板寬度效果：加寬與縮短是同一個維度，後接到的覆蓋前一個並重新計時，不疊加。 */
 export const WIDEN_FACTOR = 1.5;
 export const WIDEN_DURATION = 10;
@@ -122,10 +122,6 @@ export const MARBLE_FIELD_CAP = 100;
 
 /** 整場效果：全隊共用的一份倒數，期間場上所有彈珠都受影響；再接到只重新計時，不疊加。 */
 export const PIERCE_DURATION = 3;
-/** 彈珠大小效果：放大與縮小是同一個維度，後接到的覆蓋前一個並重新計時。 */
-export const ENLARGE_FACTOR = 1.7;
-export const SHRINK_FACTOR = 0.6;
-export const MARBLE_SIZE_DURATION = 6;
 
 /** 環爆：場上每顆彈珠原地分裂成這麼多顆（含原本那顆），均勻散開。 */
 export const BURST_COUNT = 10;

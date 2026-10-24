@@ -1,15 +1,12 @@
 import {
   BURST_COUNT,
   MARBLE_FIELD_CAP,
-  MARBLE_SIZE_DURATION,
   MAX_LIVES,
   MULTIBALL_SPREAD_DEG,
   PIERCE_DURATION,
-  POOL_CAP_PER_PLAYER,
   POWERUP_RADIUS,
   POWERUP_SPEED,
   SHORTEN_DURATION,
-  SUPPLY_AMOUNT,
   WIDEN_DURATION,
 } from '../config.ts';
 import { MONSTER_DROP_KINDS, POWERUP_DROP_CHANCE, POWERUP_KINDS, POWERUP_WEIGHTS } from '../drop-config.ts';
@@ -78,7 +75,8 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
     for (const m of state.marbles.slice()) {
       for (const deg of degrees) {
         if (state.marbles.length >= MARBLE_FIELD_CAP) return;
-        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg) };
+        // 分裂出來的新彈珠從攻擊力一開始，不繼承原彈珠。
+        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg), power: 1 };
         state.marbles.push(copy);
       }
     }
@@ -94,17 +92,8 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
     clampPaddle(player);
   }
 
-  function setMarbleSize(kind: 'enlarge' | 'shrink') {
-    state.effects.marbleSize = { kind, left: MARBLE_SIZE_DURATION };
-  }
-
   function applyTo(player: PlayerState, powerUp: PowerUp) {
     switch (powerUp.kind) {
-      case 'supply': {
-        const cap = state.players.length * POOL_CAP_PER_PLAYER;
-        state.pool = Math.max(state.pool, Math.min(state.pool + SUPPLY_AMOUNT, cap));
-        break;
-      }
       case 'widen':
         setPaddleEffect(player, 'widen', WIDEN_DURATION);
         break;
@@ -119,10 +108,6 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
         break;
       case 'pierce':
         state.effects.pierce = PIERCE_DURATION;
-        break;
-      case 'enlarge':
-      case 'shrink':
-        setMarbleSize(powerUp.kind);
         break;
       case 'burst':
         burst();

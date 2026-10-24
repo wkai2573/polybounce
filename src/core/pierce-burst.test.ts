@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { POWERUP_WEIGHTS } from './drop-config.ts';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Marble, Monster, PlayerInput, PowerUp, PowerUpKind, Side } from './types.ts';
 import { at } from './test-input.ts';
 
-const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
+const fireAt = (x: number): PlayerInput => ({ ...at(x), fire: true });
 const DT = 1 / 60;
 
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
@@ -42,7 +43,7 @@ function runUntil(game: Game, done: () => boolean, maxSeconds = 20) {
 /** 從下方垂直射出一顆彈珠並回傳它。 */
 function launch(game: Game): Marble {
   const before = game.state.marbles.length;
-  step(game, 400, rightClick(400));
+  step(game, 400, fireAt(400));
   return game.state.marbles[before]!;
 }
 
@@ -323,7 +324,7 @@ describe('環爆', () => {
   test('分裂後場上彈珠總數不超過 100 顆，超過的不產生', () => {
     const game = newGame();
     for (let i = 0; i < 15; i++) {
-      game.state.marbles.push({ id: 500 + i, pos: { x: 300 + i * 10, y: 500 }, vel: { x: 0, y: -100 } });
+      game.state.marbles.push({ id: 500 + i, pos: { x: 300 + i * 10, y: 500 }, vel: { x: 0, y: -100 }, power: 1 });
     }
 
     placeOnPaddle(game, 'bottom', 'burst');
@@ -332,15 +333,15 @@ describe('環爆', () => {
     expect(game.state.marbles).toHaveLength(100);
   });
 
-  test('場上沒有彈珠時什麼都不會發生，也不影響彈珠池', () => {
+  test('場上沒有彈珠時什麼都不會發生，也不影響發射量', () => {
     const game = newGame();
-    const pool = game.state.pool;
+    const charge = game.state.players[0]!.charge;
 
     placeOnPaddle(game, 'bottom', 'burst');
     step(game);
 
     expect(game.state.marbles).toHaveLength(0);
-    expect(game.state.pool).toBe(pool);
+    expect(game.state.players[0]!.charge).toBeGreaterThanOrEqual(charge);
     expect(game.state.powerUps).toHaveLength(0);
   });
 
@@ -377,40 +378,46 @@ describe('道具權重', () => {
   }
 
   const share = (kinds: PowerUpKind[], kind: PowerUpKind) => kinds.filter((k) => k === kind).length / kinds.length;
-  const ALL_KINDS: PowerUpKind[] = ['multiball', 'supply', 'widen', 'pierce', 'burst', 'enlarge', 'heal', 'shorten', 'shrink'];
+  const ALL_KINDS: PowerUpKind[] = ['multiball', 'widen', 'pierce', 'burst', 'heal', 'shorten'];
 
   test('大量抽選時，各種道具的比例落在權重預期的範圍內', () => {
     const kinds = dropKinds(1000);
 
     expect(kinds).toHaveLength(1000);
-    // 權重合計 130：多球 30、補給 25、加寬 25、貫通 15、放大 12、補血 8、環爆 5、縮短 5、縮小 5。
+    // 權重合計 130：多球 44、加寬 37、貫通 23、補血 12、環爆 7、縮短 7。
     const within = (kind: PowerUpKind, lo: number, hi: number) => {
       expect(share(kinds, kind)).toBeGreaterThan(lo);
       expect(share(kinds, kind)).toBeLessThan(hi);
     };
-    within('multiball', 0.18, 0.28);
-    within('supply', 0.14, 0.25);
-    within('widen', 0.14, 0.25);
-    within('pierce', 0.07, 0.16);
-    within('enlarge', 0.05, 0.14);
-    within('heal', 0.03, 0.1);
-    within('burst', 0.01, 0.07);
-    within('shorten', 0.01, 0.07);
-    within('shrink', 0.01, 0.07);
+    within('multiball', 0.27, 0.42);
+    within('widen', 0.22, 0.35);
+    within('pierce', 0.12, 0.23);
+    within('heal', 0.05, 0.14);
+    within('burst', 0.02, 0.1);
+    within('shorten', 0.02, 0.1);
   });
 
-  test('nerf 約佔磚塊掉落的 8%', () => {
+  test('補給、放大與縮小已移除：不在掉落清單中，也不會被抽到', () => {
     const kinds = dropKinds(1000);
-    const nerfs = share(kinds, 'shorten') + share(kinds, 'shrink');
 
-    expect(nerfs).toBeGreaterThan(0.04);
-    expect(nerfs).toBeLessThan(0.13);
+    for (const removed of ['supply', 'enlarge', 'shrink']) {
+      expect(Object.keys(POWERUP_WEIGHTS)).not.toContain(removed);
+      expect(kinds.some((k) => (k as string) === removed)).toBe(false);
+    }
   });
 
-  test('多球是最常出現的道具，環爆與兩個 nerf 是最少的', () => {
+  test('nerf 約佔磚塊掉落的 5%', () => {
     const kinds = dropKinds(1000);
-    const rare = (['burst', 'shorten', 'shrink'] as const).map((k) => share(kinds, k));
-    const common = (['supply', 'widen', 'pierce'] as const).map((k) => share(kinds, k));
+    const nerfs = share(kinds, 'shorten');
+
+    expect(nerfs).toBeGreaterThan(0.02);
+    expect(nerfs).toBeLessThan(0.1);
+  });
+
+  test('多球是最常出現的道具，環爆與 nerf 是最少的', () => {
+    const kinds = dropKinds(1000);
+    const rare = (['burst', 'shorten'] as const).map((k) => share(kinds, k));
+    const common = (['widen', 'pierce'] as const).map((k) => share(kinds, k));
 
     expect(share(kinds, 'multiball')).toBe(Math.max(...ALL_KINDS.map((k) => share(kinds, k))));
     expect(Math.max(...rare)).toBeLessThan(Math.min(...common));
@@ -451,28 +458,28 @@ describe('道具權重', () => {
     expect(kinds.size).toBeGreaterThanOrEqual(4);
   });
 
-  test('怪物必掉不包含 nerf：縮短擋板與縮小彈珠不會從怪物掉出', () => {
+  test('怪物必掉不包含 nerf：縮短擋板不會從怪物掉出', () => {
     const kinds = monsterDropKinds(300);
 
     expect(kinds.length).toBe(300);
-    expect(kinds.some((k) => k === 'shorten' || k === 'shrink')).toBe(false);
+    expect(kinds.some((k) => k === 'shorten')).toBe(false);
     expect(kinds.some((k) => k === 'heal')).toBe(true);
   });
 
   test('怪物必掉只會抽到必掉清單內的種類（縮小的清單）', () => {
-    const kinds = monsterDropKinds(100, { monsterDropKinds: ['supply', 'burst'] });
+    const kinds = monsterDropKinds(100, { monsterDropKinds: ['pierce', 'burst'] });
 
     expect(kinds.length).toBe(100);
-    expect(kinds.every((k) => k === 'supply' || k === 'burst')).toBe(true);
-    expect(kinds.some((k) => k === 'supply')).toBe(true);
+    expect(kinds.every((k) => k === 'pierce' || k === 'burst')).toBe(true);
+    expect(kinds.some((k) => k === 'pierce')).toBe(true);
     expect(kinds.some((k) => k === 'burst')).toBe(true);
   });
 
   test('磚塊掉落與怪物必掉各用各的清單：限定磚塊清單不影響怪物，反之亦然', () => {
-    const brickOnly = dropKinds(100, { powerUpKinds: ['shrink'], monsterDropKinds: ['supply'] });
-    const monsterOnly = monsterDropKinds(100, { powerUpKinds: ['shrink'], monsterDropKinds: ['supply'] });
+    const brickOnly = dropKinds(100, { powerUpKinds: ['shorten'], monsterDropKinds: ['pierce'] });
+    const monsterOnly = monsterDropKinds(100, { powerUpKinds: ['shorten'], monsterDropKinds: ['pierce'] });
 
-    expect(brickOnly.every((k) => k === 'shrink')).toBe(true);
-    expect(monsterOnly.every((k) => k === 'supply')).toBe(true);
+    expect(brickOnly.every((k) => k === 'shorten')).toBe(true);
+    expect(monsterOnly.every((k) => k === 'pierce')).toBe(true);
   });
 });
