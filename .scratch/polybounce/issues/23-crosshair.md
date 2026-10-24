@@ -4,7 +4,7 @@
 
 **Blocked by（被誰阻擋）：** 無（可立即開始）
 
-**Status：** ready-for-agent
+**Status：** needs-manual-verification
 
 - [ ] 對局進行中，畫面上有跟著滑鼠的準星，位置換算成場地座標（0 到 800）
 - [ ] 準星位置被限制在場地範圍內，滑鼠移出畫布邊緣時準星停在邊緣
