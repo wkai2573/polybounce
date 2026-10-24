@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Monster, PlayerInput, PowerUp, PowerUpKind, Side } from './types.ts';
+import { at } from './test-input.ts';
 
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
@@ -17,6 +17,7 @@ const monsterAt = (x: number, y: number, hp: number, boss = false): Monster => (
   hp,
   maxHp: hp,
   boss,
+  fire: boss ? 0 : 5,
 });
 
 function dropGame(opts: Partial<GameOptions> = {}) {
@@ -32,7 +33,7 @@ function dropGame(opts: Partial<GameOptions> = {}) {
 
 /** 所有玩家的指標都停在 x，只有第一位玩家額外帶著 first 的按鍵。 */
 function inputs(game: Game, x: number, first: PlayerInput = at(x)): PlayerInput[] {
-  return game.state.players.map((_, i) => (i === 0 ? first : at(x)));
+  return game.state.players.map((p, i) => (i === 0 ? first : at(x, p.side)));
 }
 
 function run(game: Game, seconds: number, x: number) {
@@ -190,7 +191,7 @@ describe('補給', () => {
     placeOnPaddle(game, 'bottom', 'supply');
     game.state.pool = 40;
 
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.pool).toBe(40);
   });
@@ -202,7 +203,7 @@ describe('補給', () => {
     far.pos.y = 300;
     game.state.pool = 10;
 
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.pool).toBe(15);
     expect(game.state.powerUps).toHaveLength(0);
@@ -292,7 +293,7 @@ describe('加寬', () => {
     const top = placeOnPaddle(game, 'top', 'widen', 7, 2);
     top.pos.y = 300;
 
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.players[0]!.paddleEffect?.kind).toBe('widen');
     expect(game.state.players[1]!.paddleEffect).toBeNull();
@@ -300,7 +301,7 @@ describe('加寬', () => {
     expect(game.state.powerUps[0]!.side).toBe('top');
 
     game.state.powerUps[0]!.pos.y = 10;
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.players[1]!.paddleEffect?.kind).toBe('widen');
   });
@@ -521,7 +522,7 @@ describe('多球', () => {
     expect(game.state.marbles).toHaveLength(2);
     placeOnPaddle(game, 'bottom', 'multiball');
 
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.marbles).toHaveLength(6);
   });
@@ -533,7 +534,7 @@ describe('多球', () => {
     const far = placeOnPaddle(game, 'top', 'multiball', 3, 2);
     far.pos.y = 300;
 
-    game.step(1 / 60, [at(400), at(400)]);
+    game.step(1 / 60, [at(400), at(400, 'top')]);
 
     expect(game.state.marbles).toHaveLength(3);
     expect(game.state.powerUps).toHaveLength(0);
@@ -616,6 +617,26 @@ describe('怪物與 BOSS 掉落', () => {
     const all = dropIds(game, () => game.state.monsters.length === 0);
 
     expect(all.size).toBe(2);
+  });
+
+  test('多隻怪物各自觸發必掉：每隻怪物血量降到門檻時各掉一次', () => {
+    const game = createGame({
+      playerCount: 1,
+      seed: 1,
+      layout: () => [cornerBrick()],
+      monsters: (level) => (level === 1 ? [{ ...monsterAt(300, 400, 1, false), id: 0 }, { ...monsterAt(500, 400, 1, false), id: 1 }] : []),
+      dropChance: 0,
+      monsterDropKinds: ['widen'],
+    });
+    // 兩顆彈珠各自貼著一隻怪物、朝它飛，下一步同時打倒兩隻。
+    game.state.marbles.push({ id: 1, pos: { x: 300, y: 440 }, vel: { x: 0, y: -420 } });
+    game.state.marbles.push({ id: 2, pos: { x: 500, y: 440 }, vel: { x: 0, y: -420 } });
+
+    game.step(1 / 60, [at(400)]);
+
+    expect(game.state.monsters).toHaveLength(0);
+    expect(game.state.powerUps).toHaveLength(2);
+    expect(new Set(game.state.powerUps.map((p) => p.batch)).size).toBe(2);
   });
 
   test('怪物掉落朝每位玩家的方位各一個、類型相同、同一批', () => {

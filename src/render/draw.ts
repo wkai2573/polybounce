@@ -4,45 +4,23 @@ import {
   BOSS_BULLET_RADIUS,
   BULLET_RADIUS,
   CORE_SIZE,
-  MARBLE_SIZE_DURATION,
   PADDLE_THICKNESS,
-  PIERCE_DURATION,
   POWERUP_RADIUS,
   REVIVE_HITS,
-  SHORTEN_DURATION,
   SIDE_ORDER,
-  WIDEN_DURATION,
 } from '../core/config.ts';
 import { marbleRadius } from '../core/effects.ts';
 import { aimDirection, isWall, pointAt } from '../core/geometry.ts';
-import { paddleWidth } from '../core/paddle.ts';
-import type { GameState, PlayerState, PowerUpKind, Side, Vec2 } from '../core/types.ts';
-
-export const SIDE_COLORS: Record<Side, string> = {
-  bottom: '#4fd1ff',
-  top: '#ff6bd6',
-  left: '#9dff6b',
-  right: '#ffd24f',
-};
+import { launchPoint, paddleWidth } from '../core/paddle.ts';
+import type { GameState, PlayerState, Side, Vec2 } from '../core/types.ts';
+import { POWERUP_STYLE, SIDE_COLORS } from './palette.ts';
 
 const MONSTER_COLOR = '#c26bff';
-const BOSS_COLOR = '#ff8a3d';
-const POWERUP_STYLE: Record<PowerUpKind, { color: string; label: string; nerf?: true }> = {
-  supply: { color: '#7dffb0', label: '+5' },
-  widen: { color: '#4fd1ff', label: '↔' },
-  multiball: { color: '#ffe14f', label: '×3' },
-  pierce: { color: '#ff9d4f', label: '貫' },
-  // 環爆很稀有，所以顏色獨特、標籤和光暈都比其他道具稍大。
-  burst: { color: '#ff4fe0', label: '環爆' },
-  heal: { color: '#ff7a93', label: '♥' },
-  enlarge: { color: '#6bffea', label: '大' },
-  // nerf 共用警示色與虛線外框，和增益一眼分得出來。
-  shorten: { color: '#ff6b6b', label: '短', nerf: true },
-  shrink: { color: '#ff6b6b', label: '小', nerf: true },
-};
+// BOSS 本體是深紅，和敵方子彈同屬紅色系；橘色只留給貫通。
+const BOSS_COLOR = '#c4122f';
 const RARE_POWERUP_SCALE = 1.25;
+// 所有敵方子彈同色，只靠大小區分來源。
 const BULLET_COLOR = '#ff4f4f';
-const BOSS_BULLET_COLOR = '#ffb347';
 const PIERCE_MARBLE_COLOR = '#ff9d4f';
 const CORPSE_COLOR = '#8a93a6';
 
@@ -57,8 +35,8 @@ function glow(ctx: CanvasRenderingContext2D, color: string, blur = 14) {
 
 function paddleRect(p: PlayerState) {
   const half = paddleWidth(p) / 2;
-  const a = pointAt(p.side, p.paddle - half, 0);
-  const b = pointAt(p.side, p.paddle + half, PADDLE_THICKNESS);
+  const a = pointAt(p.side, p.paddle - half, p.depth);
+  const b = pointAt(p.side, p.paddle + half, p.depth + PADDLE_THICKNESS);
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
@@ -69,28 +47,18 @@ function fillBand(ctx: CanvasRenderingContext2D, side: Side, a0: number, a1: num
   ctx.fillRect(Math.min(p.x, q.x), Math.min(p.y, q.y), Math.abs(p.x - q.x), Math.abs(p.y - q.y));
 }
 
-const EFFECT_DURATION = { widen: WIDEN_DURATION, shorten: SHORTEN_DURATION } as const;
-
-/** 活著的擋板：本體、擋板寬度效果的剩餘時間條、中央的核心與核心內側的生命圓點。 */
+/** 活著的擋板：本體、中央的核心與核心內側的生命圓點，都隨擋板深度畫在正確位置。 */
 function drawPaddle(ctx: CanvasRenderingContext2D, p: PlayerState) {
   const color = SIDE_COLORS[p.side];
   ctx.save();
   glow(ctx, color, 16);
   const r = paddleRect(p);
   ctx.fillRect(r.x, r.y, r.w, r.h);
-  if (p.paddleEffect) {
-    // 擋板內側的細條會隨效果剩餘時間縮短；縮短用 nerf 的警示色。
-    const { kind, left } = p.paddleEffect;
-    const width = paddleWidth(p);
-    glow(ctx, POWERUP_STYLE[kind].color, 8);
-    const start = p.paddle - width / 2;
-    fillBand(ctx, p.side, start, start + width * (left / EFFECT_DURATION[kind]), PADDLE_THICKNESS + 14, PADDLE_THICKNESS + 17);
-  }
   ctx.restore();
 
   // 核心：大小固定，無敵時閃爍。
   const half = CORE_SIZE / 2;
-  const mid = PADDLE_THICKNESS / 2;
+  const mid = p.depth + PADDLE_THICKNESS / 2;
   ctx.save();
   if (p.invincible > 0 && Math.floor(p.invincible * 10) % 2 === 0) ctx.globalAlpha = 0.25;
   ctx.fillStyle = '#05060f';
@@ -120,7 +88,7 @@ function drawCorpse(ctx: CanvasRenderingContext2D, p: PlayerState) {
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.restore();
 
-  const label = pointAt(p.side, p.paddle, PADDLE_THICKNESS + 16);
+  const label = pointAt(p.side, p.paddle, p.depth + PADDLE_THICKNESS + 16);
   ctx.save();
   ctx.fillStyle = '#cfd6e6';
   ctx.font = 'bold 14px system-ui, sans-serif';
@@ -128,45 +96,6 @@ function drawCorpse(ctx: CanvasRenderingContext2D, p: PlayerState) {
   ctx.textBaseline = 'middle';
   ctx.fillText(`${p.revive}/${REVIVE_HITS}`, label.x, label.y);
   ctx.restore();
-}
-
-/** 畫面上方的整場效果：標籤加倒數條，貫通與彈珠大小各一格。 */
-function drawEffectTags(ctx: CanvasRenderingContext2D, state: GameState) {
-  const tags: { label: string; color: string; ratio: number }[] = [];
-  if (state.effects.pierce > 0) {
-    tags.push({ label: '貫通', color: POWERUP_STYLE.pierce.color, ratio: state.effects.pierce / PIERCE_DURATION });
-  }
-  const size = state.effects.marbleSize;
-  if (size) {
-    const enlarge = size.kind === 'enlarge';
-    tags.push({
-      label: enlarge ? '放大彈珠' : '縮小彈珠',
-      color: POWERUP_STYLE[size.kind].color,
-      ratio: size.left / MARBLE_SIZE_DURATION,
-    });
-  }
-  const w = 120;
-  const h = 22;
-  const gap = 10;
-  const total = tags.length * w + (tags.length - 1) * gap;
-  const y = PADDLE_THICKNESS + 40;
-  tags.forEach((tag, i) => {
-    const x = (ARENA_SIZE - total) / 2 + i * (w + gap);
-    ctx.save();
-    ctx.fillStyle = '#10142a';
-    ctx.fillRect(x, y, w, h);
-    glow(ctx, tag.color, 6);
-    ctx.globalAlpha = 0.45;
-    ctx.fillRect(x, y, w * Math.max(0, Math.min(1, tag.ratio)), h);
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(tag.label, x + w / 2, y + h / 2 + 1);
-    ctx.restore();
-  });
 }
 
 /**
@@ -205,7 +134,6 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
   ctx.textAlign = 'right';
   ctx.fillText(`彈珠 ${state.pool}`, ARENA_SIZE - 24, hudY);
   ctx.restore();
-  drawEffectTags(ctx, state);
 
   for (const brick of state.bricks) {
     ctx.save();
@@ -266,7 +194,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     else drawPaddle(ctx, p);
 
     if (p.aiming && p.side === localSide) {
-      const from = pointAt(p.side, p.paddle, PADDLE_THICKNESS + marbleRadius(state) + 1);
+      const from = launchPoint(p, marbleRadius(state));
       const dir = aimDirection(p.side, from, pointer, AIM_MIN_ANGLE_DEG);
       ctx.save();
       glow(ctx, SIDE_COLORS[p.side], 6);
@@ -302,10 +230,10 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.restore();
   }
 
-  // BOSS 的子彈比一般怪物的小、顏色不同；同一種顏色一起畫，省去反覆切換光暈。
+  // BOSS 的子彈比一般怪物的小，顏色相同；同一種大小一起畫，省去反覆切換光暈。
   for (const source of ['monster', 'boss'] as const) {
     ctx.save();
-    glow(ctx, source === 'boss' ? BOSS_BULLET_COLOR : BULLET_COLOR, source === 'boss' ? 8 : 12);
+    glow(ctx, BULLET_COLOR, source === 'boss' ? 8 : 12);
     const radius = source === 'boss' ? BOSS_BULLET_RADIUS : BULLET_RADIUS;
     for (const b of state.bullets) {
       if (b.source !== source) continue;

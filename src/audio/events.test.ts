@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { createGame } from '../core/game.ts';
 import type { Brick, Game, GameOptions, Monster, PlayerInput } from '../core/types.ts';
 import { deriveEvents, summarize } from './events.ts';
+import { at } from '../core/test-input.ts';
 
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
 const corner = (): Brick => ({ ...brickAt(160, 160, 100000), id: 99 });
@@ -61,7 +61,7 @@ describe('音效事件', () => {
   });
 
   test('撞怪物也算撞擊', () => {
-    const monster: Monster = { id: 0, pos: { x: 400, y: 560 }, radius: 36, hp: 3, maxHp: 3, boss: false };
+    const monster: Monster = { id: 0, pos: { x: 400, y: 560 }, radius: 36, hp: 3, maxHp: 3, boss: false, fire: 5 };
     const game = newGame({ monsters: (level) => (level === 1 ? [{ ...monster }] : []) });
     stepEvents(game, [rightClick(400)]);
 
@@ -146,7 +146,7 @@ describe('音效事件', () => {
   });
 
   test('子彈打到核心：受傷', () => {
-    const monster: Monster = { id: 0, pos: { x: 400, y: 500 }, radius: 36, hp: 3, maxHp: 3, boss: false };
+    const monster: Monster = { id: 0, pos: { x: 400, y: 500 }, radius: 36, hp: 3, maxHp: 3, boss: false, fire: 5 };
     const game = newGame({ monsters: () => [{ ...monster }] });
 
     const kinds = collect(game, 8, at(400));

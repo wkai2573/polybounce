@@ -1,12 +1,15 @@
 import { deriveEvents, summarize, type Summary } from './audio/events.ts';
 import { createSfx } from './audio/sfx.ts';
 import { ARENA_SIZE, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './core/config.ts';
+import { along, pointAt } from './core/geometry.ts';
 import type { GameState, PlayerInput, Side } from './core/types.ts';
 import type { ClientSession } from './net/client.ts';
 import { createHostSession, type HostSession } from './net/host.ts';
 import { joinRoom, openRoom, type OpenRoom } from './net/peer.ts';
 import { normalizeRoomCode } from './net/room-code.ts';
-import { draw, SIDE_COLORS } from './render/draw.ts';
+import { draw } from './render/draw.ts';
+import { deriveEffectPanel, type EffectPanel, type EffectRow } from './render/effect-panel.ts';
+import { SIDE_COLORS } from './render/palette.ts';
 
 const STEP = 1 / 120;
 const BEST_KEY = 'polybounce.bestLevel';
@@ -37,6 +40,7 @@ const lobbyLevel = $<HTMLInputElement>('lobby-level');
 const lockHint = $('lock-hint');
 const back = $<HTMLButtonElement>('back');
 const muteButton = $<HTMLButtonElement>('mute');
+const effectsEl = $('effects');
 
 const versionEl = $('version');
 versionEl.textContent = `v${__APP_VERSION__}`;
@@ -102,6 +106,18 @@ function toArena(e: MouseEvent) {
     pointer.x = clampArena(((e.clientX - rect.left) / rect.width) * ARENA_SIZE);
     pointer.y = clampArena(((e.clientY - rect.top) / rect.height) * ARENA_SIZE);
   }
+}
+
+/**
+ * 遊戲開始與接關時，把本機指標放到自己那一邊的邊緣（沿邊的位置不變），
+ * 否則指標在場地中心，擋板一開局就會頂在最深處。
+ */
+function placePointerAtEdge(side: Side) {
+  const p = pointAt(side, along(side, pointer), 0);
+  pointer.x = p.x;
+  pointer.y = p.y;
+  clickPointer.x = p.x;
+  clickPointer.y = p.y;
 }
 
 const currentState = (): GameState | null => host?.state ?? guest?.state ?? null;
@@ -415,9 +431,55 @@ function buildInput(): PlayerInput {
   return input;
 }
 
+/** 效果面板的一列：玩家區的列前面有方位顏色的圓點。 */
+function effectRowEl(row: EffectRow, extra?: { side: Side; self: boolean; dead: boolean }): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'effect';
+  if (extra?.self) el.classList.add('self');
+  if (extra?.dead) el.classList.add('dead');
+  const bar = document.createElement('span');
+  bar.className = 'bar';
+  bar.style.width = `${row.ratio * 100}%`;
+  bar.style.background = row.color;
+  el.append(bar);
+  if (extra) {
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.color = SIDE_COLORS[extra.side];
+    el.append(dot);
+  }
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = row.label;
+  const secs = document.createElement('span');
+  secs.className = 'secs';
+  secs.textContent = `${row.seconds.toFixed(1)}s`;
+  el.append(name, secs);
+  return el;
+}
+
+/** 效果面板每個畫面更新一次，只讀取狀態；沒有任何效果的區塊整區不輸出，連標題也不顯示。 */
+function renderEffectPanel(panel: EffectPanel | null) {
+  const sections: HTMLElement[] = [];
+  const add = (title: string, rows: HTMLElement[]) => {
+    if (rows.length === 0) return;
+    const section = document.createElement('section');
+    const h = document.createElement('h2');
+    h.textContent = title;
+    section.append(h, ...rows);
+    sections.push(section);
+  };
+  if (panel) {
+    add('全隊', panel.team.map((r) => effectRowEl(r)));
+    add('玩家', panel.players.map((r) => effectRowEl(r, r)));
+  }
+  effectsEl.replaceChildren(...sections);
+}
+
 let last = performance.now();
 let acc = 0;
 let previous: Summary | null = null;
+let lastStatus: GameState['status'] | null = null;
 
 function frame(now: number) {
   acc += Math.min((now - last) / 1000, 0.25);
@@ -438,6 +500,15 @@ function frame(now: number) {
   syncScreens();
 
   const state = currentState();
+  // 新的一局開始（含再來一局與接關）時，指標放回自己那一邊的邊緣。
+  const side = localSide();
+  if (state?.status === 'playing' && lastStatus !== 'playing' && side) {
+    placePointerAtEdge(side);
+    lastStatus = 'playing';
+  } else if (state?.status !== 'playing') {
+    lastStatus = state?.status ?? null;
+  }
+  renderEffectPanel(state ? deriveEffectPanel(state, side) : null);
   if (state) {
     draw(ctx, state, pointer, localSide());
     const summary = summarize(state);

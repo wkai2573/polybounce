@@ -20,6 +20,8 @@ export const MARBLE_SPEED_CAP = 1.5;
 
 export const PADDLE_WIDTH = 120;
 export const PADDLE_THICKNESS = 12;
+/** 擋板深度的上限：擋板表面離自己那一邊最多這麼遠（像素）。 */
+export const PADDLE_MAX_DEPTH = 100;
 /** 擋板反彈時，擊中邊緣的最大偏離角度（度）。 */
 export const PADDLE_MAX_BOUNCE_DEG = 60;
 
@@ -45,8 +47,19 @@ export const BOSS_HP_MULTIPLIER = 3;
 /** 打倒怪物得到的分數，乘以該怪物的最大血量。 */
 export const MONSTER_SCORE_PER_HP = 20;
 
-/** 怪物每隔這麼多秒向一位玩家發射一發子彈。 */
-export const MONSTER_FIRE_INTERVAL = 5;
+/** 一般怪物的數量：第三關起兩隻，之後每隔這麼多關多一隻，上限四隻。與玩家人數無關。 */
+export const MONSTER_BASE_COUNT = 2;
+export const MONSTER_COUNT_LEVEL_STEP = 3;
+export const MONSTER_MAX_COUNT = 4;
+
+/**
+ * 每隻一般怪物各自計時，每隔這麼多秒向一位玩家發射一發子彈。第三關起是 MONSTER_FIRE_INTERVAL，
+ * 之後每過 MONSTER_FIRE_LEVEL_STEP 關縮短 MONSTER_FIRE_INTERVAL_STEP 秒，最短 MONSTER_FIRE_INTERVAL_MIN 秒。
+ */
+export const MONSTER_FIRE_INTERVAL = 3;
+export const MONSTER_FIRE_LEVEL_STEP = 5;
+export const MONSTER_FIRE_INTERVAL_STEP = 0.5;
+export const MONSTER_FIRE_INTERVAL_MIN = 1.5;
 export const BULLET_SPEED = 200;
 /** 一般怪物的子彈半徑；BOSS 的子彈（BOSS_BULLET_RADIUS）仍比它小，以便分辨來源。 */
 export const BULLET_RADIUS = 8;

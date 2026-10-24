@@ -3,8 +3,10 @@ import type { Brick, PlayerInput, Side } from '../core/types.ts';
 import { createClientSession, type ClientSession } from './client.ts';
 import { createHostSession, type HostSession } from './host.ts';
 import { createChannelPair } from './memory-channel.ts';
+import { roundForWire } from './protocol.ts';
 
-const at = (x: number, y = 0): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
+/** 預設把指標放在下方玩家自己那一邊的邊緣（y = 800），擋板深度為零。 */
+const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 const DT = 1 / 60;
 
@@ -684,6 +686,81 @@ describe('生命、屍體與整場效果的同步', () => {
 
     expect(host.state!.players[0]!.paddle).toBe(500);
     expect(top.paddle).toBe(400);
+  });
+});
+
+describe('擋板深度與多隻怪物的同步', () => {
+  function playing(level: number) {
+    const host = createHostSession({ seed: 5, sendInterval: DT, gameOptions: { layout: cornerLayout, startLevel: level } });
+    host.setStartLevel(level);
+    const guest = join(host);
+    host.start();
+    return { host, guest };
+  }
+
+  test('玩家端收到其他玩家的擋板深度，與房主一致', () => {
+    const { host, guest } = playing(1);
+
+    host.setLocalInput(at(300, 800 - 40));
+    host.advance(DT);
+
+    expect(host.state!.players[0]!.depth).toBe(40);
+    expect(guest.state!.players[0]!.depth).toBe(40);
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('玩家端的輸入也會改變自己的擋板深度，房主與其他玩家端看到相同的值', () => {
+    const { host, guest } = playing(1);
+
+    // 玩家端守上方：指標離上方邊緣 70。
+    guest.sendInput({ pointer: { x: 250, y: 70 }, primary: false, secondary: false });
+    host.advance(DT);
+
+    const top = host.state!.players.find((p) => p.side === 'top')!;
+    expect(top.depth).toBe(70);
+    expect(top.paddle).toBe(250);
+    expect(guest.state!.players.find((p) => p.side === 'top')!.depth).toBe(70);
+  });
+
+  test('開局時每位玩家的擋板都貼邊，深度是零', () => {
+    const { host, guest } = playing(1);
+
+    host.advance(DT);
+
+    for (const p of host.state!.players) expect(p.depth).toBe(0);
+    for (const p of guest.state!.players) expect(p.depth).toBe(0);
+  });
+
+  test('深度經過數字壓縮後仍正確', () => {
+    const { host, guest } = playing(1);
+
+    host.setLocalInput(at(300, 800 - 33.33));
+    host.advance(DT);
+
+    expect(host.state!.players[0]!.depth).toBeCloseTo(33.33, 5);
+    // 真實連線送出前會把小數壓成一位。
+    const onWire = roundForWire(host.state!);
+    expect(onWire.players[0]!.depth).toBe(33.3);
+    expect(onWire.monsters.map((m) => m.fire)).toEqual(host.state!.monsters.map((m) => Math.round(m.fire * 10) / 10));
+  });
+
+  test('玩家端看到的怪物數量、位置與發射倒數與房主一致', () => {
+    const { host, guest } = playing(9);
+    advance(host, 0.5);
+
+    expect(host.state!.monsters).toHaveLength(4);
+    expect(guest.state!.monsters).toHaveLength(4);
+    expect(guest.state!.monsters).toEqual(JSON.parse(JSON.stringify(host.state!.monsters)));
+    expect(new Set(guest.state!.monsters.map((m) => m.fire)).size).toBe(4);
+  });
+
+  test('怪物的發射倒數會隨時間更新到玩家端', () => {
+    const { host, guest } = playing(3);
+    const before = guest.state!.monsters[0]!.fire;
+
+    advance(host, 0.4);
+
+    expect(guest.state!.monsters[0]!.fire).toBeLessThan(before);
   });
 });
 

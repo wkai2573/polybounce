@@ -1,7 +1,7 @@
-import { PADDLE_MAX_BOUNCE_DEG, PADDLE_THICKNESS, REVIVE_HITS, SIDE_ORDER } from '../config.ts';
+import { PADDLE_MAX_BOUNCE_DEG, REVIVE_HITS, SIDE_ORDER } from '../config.ts';
 import { marbleRadius } from '../effects.ts';
 import { along, depth, FRAMES, isWall } from '../geometry.ts';
-import { paddleWidth, revivePlayer } from '../paddle.ts';
+import { paddleSurface, paddleWidth, revivePlayer } from '../paddle.ts';
 import type { GameState, Marble, PlayerState, Vec2 } from '../types.ts';
 
 /** 彈珠每移動一小段之後呼叫，負責一種實體對彈珠的反彈。prev 是這一小段開始前的位置。 */
@@ -38,19 +38,24 @@ function createWallCollider(state: GameState): MarbleCollider {
   };
 }
 
-/** 彈珠這一小段剛好從上方穿過擋板表面時，依擊中位置決定反彈角度。死亡玩家的擋板是屍體，由牆處理。 */
+/**
+ * 彈珠往邊緣飛、碰到擋板目前的表面時，依擊中位置決定反彈角度。表面隨擋板深度走。
+ * 彈珠的圓心落在表面與擋板外緣之間也算碰到，所以擋板往內移動追上正往邊緣飛的彈珠時能反彈它；
+ * 圓心已經在擋板外緣以外（板後）的彈珠不反彈，繼續飛出邊緣，漏接仍以原本的邊緣為準。
+ * 死亡玩家的擋板是屍體，由牆處理。
+ */
 function createPaddleCollider(state: GameState): MarbleCollider {
-  return (m, prev) => {
+  return (m) => {
     const radius = marbleRadius(state);
-    const line = PADDLE_THICKNESS + radius;
     for (const player of state.players) {
       if (player.dead) continue;
       const halfWidth = paddleWidth(player) / 2;
       const { side } = player;
       const { normal, tangent } = FRAMES[side];
-      const before = depth(side, prev);
+      const line = paddleSurface(player) + radius;
       const after = depth(side, m.pos);
-      if (before < line || after >= line) continue;
+      if (after >= line || after < player.depth) continue;
+      if (m.vel.x * normal.x + m.vel.y * normal.y >= 0) continue;
       const offset = (along(side, m.pos) - player.paddle) / halfWidth;
       if (Math.abs(offset) > 1 + radius / halfWidth) continue;
       const angle = (clamp(offset, -1, 1) * PADDLE_MAX_BOUNCE_DEG * Math.PI) / 180;

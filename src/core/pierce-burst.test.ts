@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Marble, Monster, PlayerInput, PowerUp, PowerUpKind, Side } from './types.ts';
+import { at } from './test-input.ts';
 
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 const DT = 1 / 60;
 
@@ -19,6 +19,7 @@ const monsterAt = (x: number, y: number, hp: number): Monster => ({
   hp,
   maxHp: hp,
   boss: false,
+  fire: 5,
 });
 
 function newGame(opts: Partial<GameOptions> = {}) {
@@ -27,7 +28,7 @@ function newGame(opts: Partial<GameOptions> = {}) {
 
 /** 所有玩家的指標都停在 x，只有第一位玩家額外帶著 first 的按鍵。 */
 function inputs(game: Game, x: number, first: PlayerInput = at(x)): PlayerInput[] {
-  return game.state.players.map((_, i) => (i === 0 ? first : at(x)));
+  return game.state.players.map((p, i) => (i === 0 ? first : at(x, p.side)));
 }
 
 function step(game: Game, x = 400, first?: PlayerInput) {

@@ -4,7 +4,6 @@ import {
   MARBLE_SIZE_DURATION,
   MAX_LIVES,
   MULTIBALL_SPREAD_DEG,
-  PADDLE_THICKNESS,
   PIERCE_DURATION,
   POOL_CAP_PER_PLAYER,
   POWERUP_RADIUS,
@@ -15,7 +14,7 @@ import {
 } from '../config.ts';
 import { MONSTER_DROP_KINDS, POWERUP_DROP_CHANCE, POWERUP_KINDS, POWERUP_WEIGHTS } from '../drop-config.ts';
 import { along, depth, FRAMES } from '../geometry.ts';
-import { alivePlayers, clampPaddle, paddleWidth } from '../paddle.ts';
+import { alivePlayers, clampPaddle, paddleSurface, paddleWidth } from '../paddle.ts';
 import { createRng } from '../rng.ts';
 import type { GameOptions, GameState, Marble, PlayerState, PowerUp, PowerUpKind, Vec2 } from '../types.ts';
 
@@ -67,7 +66,7 @@ export function createDropper(state: GameState, seed: number, options: GameOptio
   };
 }
 
-/** 道具階段：擋板寬度效果倒數、道具飄向各自的方位，被該方位活著的玩家的擋板碰到就拾取，飄出場地就消失。 */
+/** 道具階段：擋板寬度效果倒數、道具飄向各自的方位，被該方位活著的玩家的擋板（在它目前的深度）碰到就拾取，飄到原本的邊緣外就消失。 */
 export function createPowerUpStage(state: GameState, nextMarbleId: () => number) {
   function rotate(v: Vec2, deg: number): Vec2 {
     const a = (deg * Math.PI) / 180;
@@ -133,7 +132,7 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
 
   function touches(player: PlayerState, p: PowerUp) {
     const d = depth(player.side, p.pos);
-    if (d > PADDLE_THICKNESS + POWERUP_RADIUS || d < -POWERUP_RADIUS) return false;
+    if (d > paddleSurface(player) + POWERUP_RADIUS || d < player.depth - POWERUP_RADIUS) return false;
     return Math.abs(along(player.side, p.pos) - player.paddle) <= paddleWidth(player) / 2 + POWERUP_RADIUS;
   }
 

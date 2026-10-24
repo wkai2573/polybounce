@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Marble, Monster, PlayerInput, PlayerState, Side } from './types.ts';
+import { at } from './test-input.ts';
 
 const DT = 1 / 60;
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 const leftClick = (x: number): PlayerInput => ({ ...at(x), primary: true });
 
@@ -11,7 +11,7 @@ const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, 
 /** 躲在角落、不會擋到中線彈珠的磚塊，讓關卡不會一開始就算清空。 */
 const cornerBrick = (): Brick => ({ ...brickAt(160, 160, 100000), id: 99 });
 
-const monsterAt = (x: number, y: number, hp = 5): Monster => ({ id: 0, pos: { x, y }, radius: 36, hp, maxHp: hp, boss: false });
+const monsterAt = (x: number, y: number, hp = 5): Monster => ({ id: 0, pos: { x, y }, radius: 36, hp, maxHp: hp, boss: false, fire: 5 });
 
 function newGame(opts: Partial<GameOptions> = {}) {
   return createGame({ playerCount: 1, seed: 1, layout: () => [cornerBrick()], dropChance: 0, ...opts });
@@ -19,7 +19,7 @@ function newGame(opts: Partial<GameOptions> = {}) {
 
 /** 所有玩家的指標都停在 x，只有第一位玩家額外帶著 first 的按鍵。 */
 function inputs(game: Game, x: number, first: PlayerInput = at(x)): PlayerInput[] {
-  return game.state.players.map((_, i) => (i === 0 ? first : at(x)));
+  return game.state.players.map((p, i) => (i === 0 ? first : at(x, p.side)));
 }
 
 function step(game: Game, x = 400, first?: PlayerInput) {

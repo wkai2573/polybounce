@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { BULLET_CAP } from './config.ts';
 import { createGame } from './game.ts';
 import type { Brick, Bullet, BulletSource, Game, GameOptions, Monster, PlayerInput } from './types.ts';
+import { at } from './test-input.ts';
 
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 const DT = 1 / 60;
 
@@ -16,6 +16,7 @@ const monsterAt = (x: number, y: number, hp: number, boss: boolean, id = 0): Mon
   hp,
   maxHp: hp,
   boss,
+  fire: boss ? 0 : 5,
 });
 
 function newGame(monsters: () => Monster[], opts: Partial<GameOptions> = {}) {

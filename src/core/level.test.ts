@@ -59,12 +59,50 @@ describe('關卡生成', () => {
 });
 
 describe('怪物生成', () => {
-  test('第 1、2 關沒有怪物，第 3 關起每關一隻', () => {
+  test('第 1、2 關沒有怪物', () => {
     expect(generateMonsters(1, 42)).toHaveLength(0);
     expect(generateMonsters(2, 42)).toHaveLength(0);
-    for (const level of [3, 4, 7, 12]) {
-      expect(generateMonsters(level, 42)).toHaveLength(1);
+  });
+
+  test('一般關卡的怪物數量：第 3 關起兩隻，之後每三關多一隻，上限四隻', () => {
+    const counts = [3, 4, 6, 7, 8, 9, 11, 12, 14, 19, 24, 99].map((level) => generateMonsters(level, 42).length);
+
+    expect(counts).toEqual([2, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4]);
+  });
+
+  test('怪物數量只看關卡，與種子無關', () => {
+    for (let seed = 0; seed < 10; seed++) {
+      expect(generateMonsters(6, seed)).toHaveLength(3);
+      expect(generateMonsters(9, seed)).toHaveLength(4);
     }
+  });
+
+  test('多隻怪物生成時圓心距離至少兩個半徑，也都落在中央區域內', () => {
+    for (let seed = 0; seed < 50; seed++) {
+      for (const level of [3, 6, 9, 12]) {
+        const monsters = generateMonsters(level, seed);
+        for (const m of monsters) {
+          expect(m.pos.x - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+          expect(m.pos.x + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+          expect(m.pos.y - m.radius).toBeGreaterThanOrEqual(BRICK_REGION.min);
+          expect(m.pos.y + m.radius).toBeLessThanOrEqual(BRICK_REGION.max);
+        }
+        for (let i = 0; i < monsters.length; i++) {
+          for (let j = i + 1; j < monsters.length; j++) {
+            const a = monsters[i]!;
+            const b = monsters[j]!;
+            expect(Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y)).toBeGreaterThanOrEqual(2 * a.radius);
+          }
+        }
+      }
+    }
+  });
+
+  test('多隻怪物的編號互不相同，血量一樣', () => {
+    const monsters = generateMonsters(9, 3);
+
+    expect(new Set(monsters.map((m) => m.id)).size).toBe(4);
+    expect(new Set(monsters.map((m) => m.maxHp)).size).toBe(1);
   });
 
   test('怪物整隻落在中央區域內，血量是滿的', () => {
@@ -84,6 +122,11 @@ describe('怪物生成', () => {
 
   test('相同種子與關卡產生相同的怪物', () => {
     expect(generateMonsters(5, 7)).toEqual(generateMonsters(5, 7));
+    expect(generateMonsters(9, 7)).toEqual(generateMonsters(9, 7));
+  });
+
+  test('不同種子的多隻怪物配置不同', () => {
+    expect(generateMonsters(9, 1)).not.toEqual(generateMonsters(9, 2));
   });
 });
 
@@ -95,8 +138,10 @@ describe('BOSS 關', () => {
 
   test('BOSS 關中央是一隻 BOSS，其他關卡的怪物不是 BOSS', () => {
     expect(generateMonsters(5, 1)[0]!.boss).toBe(true);
-    expect(generateMonsters(10, 1)).toHaveLength(1);
-    for (const level of [3, 4, 6, 9]) expect(generateMonsters(level, 1)[0]!.boss).toBe(false);
+    for (const level of [5, 10, 15, 20, 95]) expect(generateMonsters(level, 1)).toHaveLength(1);
+    for (const level of [3, 4, 6, 9]) {
+      expect(generateMonsters(level, 1).every((m) => !m.boss)).toBe(true);
+    }
   });
 
   test('BOSS 的血量明顯高於同一關的一般怪物', () => {

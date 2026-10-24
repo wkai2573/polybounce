@@ -14,10 +14,8 @@ import {
   BOSS_SPIRAL_RAGE_INTERVAL,
   BOSS_SPIRAL_TURN_DEG,
   BOSS_VOLLEY_INTERVAL,
-  PADDLE_THICKNESS,
 } from '../config.ts';
-import { pointAt } from '../geometry.ts';
-import { alivePlayers } from '../paddle.ts';
+import { alivePlayers, coreCenter } from '../paddle.ts';
 import type { GameState, Monster, Vec2 } from '../types.ts';
 
 /** 射出一發 BOSS 的子彈；場上子彈已達上限時由呼叫端略過，所以這裡不必處理。 */
@@ -66,7 +64,7 @@ export function createBarrageStage(state: GameState, rng: () => number, shoot: B
     const candidates = alivePlayers(state);
     const target = candidates[Math.floor(rng() * candidates.length)];
     if (!target) return;
-    const goal = pointAt(target.side, target.paddle, PADDLE_THICKNESS / 2);
+    const goal = coreCenter(target);
     const center = Math.atan2(goal.y - boss.pos.y, goal.x - boss.pos.x);
     const count = raging(boss) ? BOSS_FAN_RAGE_COUNT : BOSS_FAN_COUNT;
     const step = rad(BOSS_FAN_SPREAD_DEG) / (count - 1);

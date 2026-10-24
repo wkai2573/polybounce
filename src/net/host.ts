@@ -1,5 +1,6 @@
-import { MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from '../core/config.ts';
+import { ARENA_SIZE, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from '../core/config.ts';
 import { createGame } from '../core/game.ts';
+import { along, pointAt } from '../core/geometry.ts';
 import type { Game, GameOptions, GameState, PlayerInput, Side } from '../core/types.ts';
 import { MAX_PLAYERS, type ClientMessage, type HostChannel } from './protocol.ts';
 
@@ -74,8 +75,9 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
   let sinceSend = 0;
   let lastStatus: GameState['status'] = 'playing';
 
-  function neutral(): PlayerInput {
-    return { pointer: { x: 400, y: 400 }, primary: false, secondary: false };
+  /** 還沒收到輸入時的指標：自己那一邊邊緣的正中央。 */
+  function neutral(side: Side = 'bottom'): PlayerInput {
+    return { pointer: pointAt(side, ARENA_SIZE / 2, 0), primary: false, secondary: false };
   }
 
   const emitChange = () => changeHandlers.forEach((h) => h());
@@ -131,8 +133,17 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
     emitChange();
   }
 
+  /** 一局開始時，每位玩家的指標放回自己那一邊的邊緣（沿邊的位置不變），擋板不會一開局就頂在最深處。 */
+  function resetPointers() {
+    for (const m of members) {
+      const p = pointAt(m.side, along(m.side, m.input.pointer), 0);
+      m.input.pointer = { x: p.x, y: p.y };
+    }
+  }
+
   /** level 是開始遊玩的關卡，runStart 是這一局的起點；接關時兩者不同。 */
   function newGame(level: number, runStart: number) {
+    resetPointers();
     // 第一局可以由呼叫端指定種子，之後每次重開都換新的。
     const seed = game === null ? (options.seed ?? randomSeed()) : randomSeed();
     game = createGame({
@@ -209,7 +220,7 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
       if (phase !== 'playing' || !game) return;
       const inputs = game.state.players.map((p) => {
         const member = members.find((m) => m.side === p.side);
-        return member ? take(member) : neutral();
+        return member ? take(member) : neutral(p.side);
       });
       if (paused) return;
       game.step(dt, inputs);

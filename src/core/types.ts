@@ -31,9 +31,11 @@ export interface Monster {
   maxHp: number;
   /** BOSS 更大、血量更多，並且改放彈幕而不是定時射單發。 */
   boss: boolean;
+  /** 距離下一次發射還有幾秒，每隻一般怪物各自倒數。BOSS 用彈幕，不使用這個欄位。 */
+  fire: number;
 }
 
-/** 子彈是誰射的：BOSS 的子彈比一般怪物的小、顏色不同。 */
+/** 子彈是誰射的：BOSS 的子彈比一般怪物的小，所有敵方子彈同色。 */
 export type BulletSource = 'boss' | 'monster';
 
 /** 怪物發射的子彈，pos 是圓心。不會與彈珠互相碰撞，也不會被磚塊擋住。 */
@@ -78,6 +80,8 @@ export interface PlayerState {
   side: Side;
   /** 擋板中心沿著自己那一邊的座標：上下兩邊是 x，左右兩邊是 y。 */
   paddle: number;
+  /** 擋板深度：擋板表面離自己那一邊的距離，0 是貼邊，最大 PADDLE_MAX_DEPTH。核心、彈珠反彈面、道具拾取與發射起點都以它為準。 */
+  depth: number;
   aiming: boolean;
   /** 生命，被子彈打到核心扣 1 點，歸零就死亡。 */
   lives: number;

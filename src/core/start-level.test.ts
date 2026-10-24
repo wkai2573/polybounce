@@ -3,8 +3,8 @@ import { MARBLE_BASE_SPEED } from './config.ts';
 import { createGame } from './game.ts';
 import { generateLevel, generateMonsters, isBossLevel } from './level.ts';
 import type { PlayerInput } from './types.ts';
+import { at } from './test-input.ts';
 
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 
 describe('起始關卡', () => {
@@ -22,7 +22,7 @@ describe('起始關卡', () => {
     expect(state.startLevel).toBe(8);
     expect(state.bricks).toEqual(generateLevel(8, 7));
     expect(state.monsters).toEqual(generateMonsters(8, 7));
-    expect(state.monsters).toHaveLength(1);
+    expect(state.monsters).toHaveLength(3);
   });
 
   test('從 BOSS 關開始，一開始就是 BOSS', () => {

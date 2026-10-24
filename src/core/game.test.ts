@@ -3,7 +3,8 @@ import { PADDLE_WIDTH } from './config.ts';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Monster, PlayerInput } from './types.ts';
 
-const at = (x: number, y = 0): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
+/** 預設把指標放在下方玩家自己那一邊的邊緣（y = 800），擋板深度為零。 */
+const at = (x: number, y = 800): PlayerInput => ({ pointer: { x, y }, primary: false, secondary: false });
 
 describe('開局狀態', () => {
   test('單人從第 1 關開始，玩家在下方，彈珠池 10 顆、場上沒有彈珠', () => {
@@ -72,7 +73,7 @@ describe('瞄準模式', () => {
   test('左鍵進入瞄準模式：擋板被鎖住，也不會射出彈珠', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
 
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
     game.step(1 / 60, [at(500, 400)]);
 
     const { state } = game;
@@ -84,7 +85,7 @@ describe('瞄準模式', () => {
 
   test('瞄準時再按左鍵，朝指標方向射出並離開瞄準模式', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
 
     game.step(1 / 60, [leftClick(400, 681)]);
 
@@ -98,7 +99,7 @@ describe('瞄準模式', () => {
 
   test('瞄準角度與自己那一邊的表面至少夾 15 度', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
 
     game.step(1 / 60, [leftClick(790, 781)]);
 
@@ -109,7 +110,7 @@ describe('瞄準模式', () => {
 
   test('指標在擋板後方時，也會夾在最小角度之內', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
 
     game.step(1 / 60, [leftClick(10, 799)]);
 
@@ -120,7 +121,7 @@ describe('瞄準模式', () => {
 
   test('瞄準時按右鍵是取消瞄準，不會射出彈珠', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
 
     game.step(1 / 60, [rightClick(300)]);
 
@@ -134,7 +135,7 @@ describe('瞄準模式', () => {
     const game = createGame({ playerCount: 1, seed: 1 });
     for (let i = 0; i < 10; i++) game.step(1 / 60, [rightClick(300)]);
 
-    game.step(1 / 60, [leftClick(300, 400)]);
+    game.step(1 / 60, [leftClick(300, 800)]);
 
     expect(game.state.pool).toBe(0);
     expect(game.state.players[0]!.aiming).toBe(false);
@@ -382,6 +383,7 @@ const monsterAt = (x: number, y: number, hp = 3, boss = false): Monster => ({
   hp,
   maxHp: hp,
   boss,
+  fire: boss ? 0 : 5,
 });
 
 describe('怪物', () => {
@@ -390,7 +392,7 @@ describe('怪物', () => {
   const newMonsterGame = (monsters: GameOptions['monsters'], layout: GameOptions['layout'] = cornerLayout) =>
     createGame({ playerCount: 1, seed: 1, layout, monsters });
 
-  test('預設第 1、2 關沒有怪物，第 3 關出現', () => {
+  test('預設第 1、2 關沒有怪物，第 3 關出現兩隻', () => {
     const game = createGame({ playerCount: 1, seed: 1, layout: (level) => (level < 3 ? [brickAt(376, 300)] : cornerLayout()) });
     expect(game.state.monsters).toHaveLength(0);
 
@@ -401,7 +403,7 @@ describe('怪物', () => {
       if (game.state.level === 2) expect(game.state.monsters).toHaveLength(0);
     }
 
-    expect(game.state.monsters).toHaveLength(1);
+    expect(game.state.monsters).toHaveLength(2);
   });
 
   test('怪物血量不隨玩家人數改變', () => {
@@ -472,6 +474,36 @@ describe('怪物', () => {
 
     game.step(1 / 60, [rightClick(400)]);
     runUntil(game, () => game.state.level === 2, at(400));
+    expect(game.state.level).toBe(2);
+  });
+
+  test('怪物數量與玩家人數無關，BOSS 關只有 BOSS 一隻', () => {
+    for (const playerCount of [1, 2, 3, 4] as const) {
+      expect(createGame({ playerCount, seed: 1, startLevel: 6 }).state.monsters).toHaveLength(3);
+      expect(createGame({ playerCount, seed: 1, startLevel: 9 }).state.monsters).toHaveLength(4);
+      const boss = createGame({ playerCount, seed: 1, startLevel: 10 }).state.monsters;
+      expect(boss).toHaveLength(1);
+      expect(boss[0]!.boss).toBe(true);
+    }
+  });
+
+  test('只剩一隻怪物不算過關，全部清除才進入下一關', () => {
+    const game = newMonsterGame(
+      (level) => (level === 1 ? [{ ...monsterAt(400, 560, 1), id: 0 }, { ...monsterAt(580, 580, 5), id: 1 }] : []),
+      (level) => (level === 1 ? [] : cornerLayout()),
+    );
+    game.step(1 / 60, [rightClick(400)]);
+
+    runUntil(game, () => game.state.monsters.length === 1, at(400));
+    run(game, 0.5, at(400));
+
+    expect(game.state.monsters).toHaveLength(1);
+    expect(game.state.monsters[0]!.id).toBe(1);
+    expect(game.state.level).toBe(1);
+
+    game.state.monsters.length = 0;
+    run(game, 0.1, at(400));
+
     expect(game.state.level).toBe(2);
   });
 
@@ -578,13 +610,15 @@ describe('子彈', () => {
     const game = lone();
     run(game, 5.1, at(400));
     expect(game.state.bullets).toHaveLength(1);
+    const first = game.state.bullets[0]!.id;
 
+    // 怪物每隔幾秒又會射下一發，所以只確認第一發飛出場地消失。
     for (let t = 0; t < 4; t += 1 / 60) {
       game.step(1 / 60, [at(700)]);
       expect(game.state.players[0]!.lives).toBe(3);
     }
 
-    expect(game.state.bullets).toHaveLength(0);
+    expect(game.state.bullets.some((b) => b.id === first)).toBe(false);
   });
 });
 

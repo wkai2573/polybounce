@@ -5,12 +5,11 @@ import {
   BULLET_SPEED,
   CORE_SIZE,
   HIT_INVINCIBLE_DURATION,
-  MONSTER_FIRE_INTERVAL,
-  PADDLE_THICKNESS,
   SIDE_ORDER,
 } from '../config.ts';
-import { along, depth, isWall, pointAt } from '../geometry.ts';
-import { alivePlayers, killPlayer } from '../paddle.ts';
+import { along, depth, isWall } from '../geometry.ts';
+import { monsterFireInterval } from '../level.ts';
+import { alivePlayers, coreCenter, killPlayer } from '../paddle.ts';
 import type { Bullet, BulletSource, GameState, Monster, PlayerState, Vec2 } from '../types.ts';
 import { createBarrageStage } from './barrage.ts';
 
@@ -18,18 +17,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 export const bulletRadius = (source: BulletSource) => (source === 'boss' ? BOSS_BULLET_RADIUS : BULLET_RADIUS);
 
-/** 核心在擋板厚度的正中央，沿著自己那一邊的範圍以擋板中心為準。 */
 const CORE_HALF = CORE_SIZE / 2;
-const CORE_CENTER_DEPTH = PADDLE_THICKNESS / 2;
 
 /**
- * 子彈階段：無敵倒數、一般怪物定時朝隨機一位活著的玩家發射、BOSS 施放彈幕、子彈直線飛行。
- * 子彈不會被磚塊擋住，也穿過擋板本身；只有打到核心才使該玩家扣一點生命並消失，
+ * 子彈階段：無敵倒數、每隻一般怪物各自倒數並朝隨機一位活著的玩家核心發射、BOSS 施放彈幕、子彈直線飛行。
+ * 子彈不會被磚塊擋住，也穿過擋板本身；只有打到核心的實際位置才使該玩家扣一點生命並消失，
  * 受傷後的無敵期間子彈穿過核心。碰到牆、越過有玩家的那一邊就消失。
  */
 export function createBulletStage(state: GameState, rng: () => number) {
-  // 發射倒數只是怪物的過程，不屬於遊戲狀態，所以不放進快照。
-  const timers = new WeakMap<Monster, number>();
   let nextBulletId = 0;
 
   /** 場上子彈已達上限時不再發射。 */
@@ -44,7 +39,7 @@ export function createBulletStage(state: GameState, rng: () => number) {
     const candidates = alivePlayers(state);
     const target = candidates[Math.floor(rng() * candidates.length)];
     if (!target) return;
-    const goal = pointAt(target.side, target.paddle, CORE_CENTER_DEPTH);
+    const goal = coreCenter(target);
     const dx = goal.x - monster.pos.x;
     const dy = goal.y - monster.pos.y;
     const dist = Math.hypot(dx, dy);
@@ -57,7 +52,8 @@ export function createBulletStage(state: GameState, rng: () => number) {
     const a = along(player.side, b.pos);
     const d = depth(player.side, b.pos);
     const nearA = clamp(a, player.paddle - CORE_HALF, player.paddle + CORE_HALF);
-    const nearD = clamp(d, CORE_CENTER_DEPTH - CORE_HALF, CORE_CENTER_DEPTH + CORE_HALF);
+    const centerD = depth(player.side, coreCenter(player));
+    const nearD = clamp(d, centerD - CORE_HALF, centerD + CORE_HALF);
     return Math.hypot(a - nearA, d - nearD) < radius;
   }
 
@@ -111,12 +107,11 @@ export function createBulletStage(state: GameState, rng: () => number) {
         advanceBarrage(monster, dt);
         continue;
       }
-      const elapsed = (timers.get(monster) ?? 0) + dt;
-      if (elapsed >= MONSTER_FIRE_INTERVAL) {
+      // 倒數隨狀態同步；達到子彈上限時 spawn 會略過這一發，倒數照常重來。
+      monster.fire -= dt;
+      while (monster.fire <= 0) {
         fire(monster);
-        timers.set(monster, elapsed - MONSTER_FIRE_INTERVAL);
-      } else {
-        timers.set(monster, elapsed);
+        monster.fire += monsterFireInterval(state.level);
       }
     }
 

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { createGame } from './game.ts';
 import type { Brick, Game, GameOptions, Marble, Monster, PlayerInput, PowerUp, PowerUpKind, Side } from './types.ts';
+import { at } from './test-input.ts';
 
 const DT = 1 / 60;
-const at = (x: number): PlayerInput => ({ pointer: { x, y: 0 }, primary: false, secondary: false });
 const rightClick = (x: number): PlayerInput => ({ ...at(x), secondary: true });
 
 const brickAt = (x: number, y: number, hp = 1): Brick => ({ id: 0, x, y, w: 48, h: 24, hp, maxHp: hp });
@@ -11,14 +11,14 @@ const cornerBrick = (): Brick => ({ ...brickAt(160, 160, 100000), id: 99 });
 /** 擋在垂直射出路徑上的磚塊：x 從 376 到 424、y 從 300 到 324。 */
 const pathBrick = (hp: number): Brick => ({ ...brickAt(376, 300, hp), id: 1 });
 
-const monsterAt = (x: number, y: number, hp: number): Monster => ({ id: 0, pos: { x, y }, radius: 36, hp, maxHp: hp, boss: false });
+const monsterAt = (x: number, y: number, hp: number): Monster => ({ id: 0, pos: { x, y }, radius: 36, hp, maxHp: hp, boss: false, fire: 5 });
 
 function newGame(opts: Partial<GameOptions> = {}) {
   return createGame({ playerCount: 1, seed: 1, layout: () => [cornerBrick()], dropChance: 0, ...opts });
 }
 
 function inputs(game: Game, x: number, first: PlayerInput = at(x)): PlayerInput[] {
-  return game.state.players.map((_, i) => (i === 0 ? first : at(x)));
+  return game.state.players.map((p, i) => (i === 0 ? first : at(x, p.side)));
 }
 
 function step(game: Game, x = 400, first?: PlayerInput) {

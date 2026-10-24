@@ -14,16 +14,107 @@
         font-family: system-ui, 'Microsoft JhengHei', sans-serif;
         overflow: hidden;
       }
+      :root {
+        --panel-w: 200px;
+        --panel-gap: 12px;
+        /* 面板移到場地下方時預留的高度。 */
+        --panel-h: 132px;
+      }
       #stage {
         position: relative;
         height: 100%;
-        display: grid;
-        place-items: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--panel-gap);
       }
+      /* 場地是正方形，縮放時要扣掉面板所佔的空間：寬螢幕扣寬度，窄螢幕或直向扣高度。 */
       #wrap {
         position: relative;
-        width: min(100vw, 100vh);
-        height: min(100vw, 100vh);
+        flex: none;
+        width: min(100vw - var(--panel-w) - var(--panel-gap), 100vh);
+        height: min(100vw - var(--panel-w) - var(--panel-gap), 100vh);
+      }
+      #effects {
+        flex: none;
+        width: var(--panel-w);
+        align-self: flex-start;
+        margin-top: var(--panel-gap);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        font-size: 14px;
+      }
+      #effects h2 {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: normal;
+        letter-spacing: 0.1em;
+        opacity: 0.6;
+      }
+      #effects .effect {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 8px;
+        margin-bottom: 4px;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #10142a;
+      }
+      #effects .effect .bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        opacity: 0.4;
+      }
+      #effects .effect > :not(.bar) {
+        position: relative;
+      }
+      #effects .effect .name {
+        flex: 1;
+      }
+      #effects .effect .secs {
+        font-variant-numeric: tabular-nums;
+      }
+      #effects .effect .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 6px currentColor;
+      }
+      #effects .effect.self {
+        outline: 2px solid #cfe8ff;
+        background: #1b2347;
+      }
+      #effects .effect.dead {
+        opacity: 0.55;
+        filter: grayscale(1);
+      }
+      @media (orientation: portrait), (max-width: 760px) {
+        #stage {
+          flex-direction: column;
+          justify-content: flex-start;
+        }
+        #wrap {
+          width: min(100vw, 100vh - var(--panel-h) - var(--panel-gap));
+          height: min(100vw, 100vh - var(--panel-h) - var(--panel-gap));
+        }
+        #effects {
+          align-self: auto;
+          margin-top: 0;
+          width: min(100vw - 2 * var(--panel-gap), 480px);
+          height: var(--panel-h);
+          overflow-y: auto;
+          flex-direction: row;
+          flex-wrap: wrap;
+          align-content: flex-start;
+        }
+        #effects section {
+          flex: 1 1 200px;
+        }
       }
       canvas {
         width: 100%;
@@ -225,6 +316,7 @@
         </div>
         <div id="lock-hint">點一下畫面鎖定滑鼠</div>
       </div>
+      <aside id="effects" aria-label="效果面板"></aside>
     </div>
     <button id="mute" class="secondary" title="切換音效（M）"></button>
     <script type="module" src="/src/main.ts"></script>
