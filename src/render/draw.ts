@@ -13,7 +13,7 @@ import { aimDirection, pointAt } from '../core/geometry.ts';
 import { paddleWidth } from '../core/paddle.ts';
 import type { GameState, PlayerState, PowerUpKind, Side, Vec2 } from '../core/types.ts';
 
-const SIDE_COLORS: Record<Side, string> = {
+export const SIDE_COLORS: Record<Side, string> = {
   bottom: '#4fd1ff',
   top: '#ff6bd6',
   left: '#9dff6b',
@@ -46,7 +46,11 @@ function paddleRect(p: PlayerState) {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
-export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: Vec2) {
+/**
+ * pointer 是本機玩家的指標，localSide 是本機玩家的方位。瞄準線只畫本機玩家的，
+ * 因為其他人的瞄準方向只有他們自己的指標知道。
+ */
+export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: Vec2, localSide: Side | null) {
   ctx.clearRect(0, 0, ARENA_SIZE, ARENA_SIZE);
   ctx.fillStyle = '#05060f';
   ctx.fillRect(0, 0, ARENA_SIZE, ARENA_SIZE);
@@ -64,6 +68,20 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
   }
+  ctx.restore();
+
+  // 資訊列先畫，擋板、彈珠與瞄準線都疊在它上面，所以任何方位的擋板都不會被它遮住；
+  // 文字也排在擋板厚度之外，不與上方玩家的擋板重疊。
+  const hudY = PADDLE_THICKNESS + 8;
+  ctx.save();
+  ctx.fillStyle = '#cfe8ff';
+  ctx.font = '20px system-ui, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`第 ${state.level} 關`, 24, hudY);
+  ctx.textAlign = 'center';
+  ctx.fillText(`分數 ${state.score}`, ARENA_SIZE / 2, hudY);
+  ctx.textAlign = 'right';
+  ctx.fillText(`彈珠 ${state.pool}`, ARENA_SIZE - 24, hudY);
   ctx.restore();
 
   for (const brick of state.bricks) {
@@ -143,7 +161,7 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     }
     ctx.restore();
 
-    if (p.aiming) {
+    if (p.aiming && p.side === localSide) {
       const from = pointAt(p.side, p.paddle, PADDLE_THICKNESS + MARBLE_RADIUS + 1);
       const dir = aimDirection(p.side, from, pointer, AIM_MIN_ANGLE_DEG);
       ctx.save();
@@ -193,16 +211,5 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
     ctx.arc(m.pos.x, m.pos.y, MARBLE_RADIUS, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.restore();
-
-  ctx.save();
-  ctx.fillStyle = '#cfe8ff';
-  ctx.font = '20px system-ui, sans-serif';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`第 ${state.level} 關`, 24, 20);
-  ctx.textAlign = 'center';
-  ctx.fillText(`分數 ${state.score}`, ARENA_SIZE / 2, 20);
-  ctx.textAlign = 'right';
-  ctx.fillText(`彈珠 ${state.pool}`, ARENA_SIZE - 24, 20);
   ctx.restore();
 }
