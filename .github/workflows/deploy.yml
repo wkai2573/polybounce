@@ -1,42 +1,68 @@
-name: Deploy to GitHub Pages
+name: Publish to Hub Worker
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: publish-hub
+  cancel-in-progress: false
+
+env:
+  APP_NAME: polybounce
+  HUB_REPO: ${{ vars.HUB_REPO || 'wkai2573/hub' }}
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           # 版本號用 commit 總數推算，需要完整的歷史。
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test
-      - run: bun run build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck & test
+        run: |
+          bun run typecheck
+          bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Checkout hub repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HUB_REPO }}
+          token: ${{ secrets.HUB_PUSH_TOKEN }}
+          path: hub
+
+      - name: Sync dist into hub
+        run: |
+          rm -rf "hub/apps/${APP_NAME}"
+          mkdir -p "hub/apps/${APP_NAME}"
+          cp -r dist/. "hub/apps/${APP_NAME}/"
+
+      - name: Commit & push to hub
+        working-directory: hub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A "apps/${APP_NAME}"
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+          git commit -m "deploy(${APP_NAME}): ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1

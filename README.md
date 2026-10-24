@@ -2,7 +2,7 @@
 
 多人合作的彈珠打磚塊遊戲：玩家各佔方形場地的一邊，用擋板接住彈珠，擊碎場地中央的磚塊與怪物。單人可以直接在瀏覽器遊玩，多人用房間碼點對點連線，不需要伺服器。
 
-線上遊玩：https://wkai2573.github.io/polybounce/
+線上遊玩：https://hub.ouo1.workers.dev/polybounce/
 
 ## 玩法
 
@@ -72,7 +72,7 @@ bun test           # 執行測試
 
 ## 部署
 
-推送到 `main` 後，[GitHub Actions](.github/workflows/deploy.yml) 會依序跑型別檢查、測試與建置，通過後自動部署到 GitHub Pages。
+推送到 `main` 後，[GitHub Actions](.github/workflows/deploy.yml) 會依序跑型別檢查、測試與建置，通過後自動同步發布至 [Hub (Cloudflare Workers)](https://hub.ouo1.workers.dev/polybounce/)。
 
 ## 專案結構
 
