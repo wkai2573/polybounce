@@ -384,6 +384,239 @@ describe('再來一局', () => {
   });
 });
 
+/** 讓每位玩家把彈珠池用完並讓擋板離開，直到全隊失敗。 */
+function playUntilDefeated(host: HostSession, guests: ClientSession[] = []) {
+  const pool = host.state!.pool;
+  for (let i = 0; i < pool; i++) {
+    host.setLocalInput(rightClick(100));
+    for (const g of guests) g.sendInput(rightClick(100));
+    host.advance(DT);
+  }
+  host.setLocalInput(at(700));
+  for (const g of guests) g.sendInput(at(700));
+  for (let t = 0; t < 120 && host.state!.status !== 'defeated'; t += DT) host.advance(DT);
+}
+
+describe('大廳選關', () => {
+  test('預設起始關卡是第 1 關，玩家加入時就看得到', () => {
+    const host = newHost();
+    const guest = join(host);
+
+    expect(host.startLevel).toBe(1);
+    expect(guest.startLevel).toBe(1);
+  });
+
+  test('房主調整起始關卡，已在大廳的玩家即時看到相同的值', () => {
+    const host = newHost();
+    const a = join(host);
+    const b = join(host);
+
+    host.setStartLevel(12);
+
+    expect(host.startLevel).toBe(12);
+    expect(a.startLevel).toBe(12);
+    expect(b.startLevel).toBe(12);
+  });
+
+  test('後來才加入的玩家看到房主已選好的關卡', () => {
+    const host = newHost();
+    host.setStartLevel(7);
+
+    const late = join(host);
+
+    expect(late.startLevel).toBe(7);
+  });
+
+  test('起始關卡限制在 1 到 99，非數字無效', () => {
+    const host = newHost();
+
+    host.setStartLevel(0);
+    expect(host.startLevel).toBe(1);
+    host.setStartLevel(500);
+    expect(host.startLevel).toBe(99);
+    host.setStartLevel(30.4);
+    expect(host.startLevel).toBe(30);
+    host.setStartLevel(Number.NaN);
+    expect(host.startLevel).toBe(30);
+  });
+
+  test('調整起始關卡時通知房主畫面更新', () => {
+    const host = newHost();
+    let changes = 0;
+    host.onChange(() => changes++);
+
+    host.setStartLevel(5);
+
+    expect(changes).toBe(1);
+  });
+
+  test('玩家送來的選關訊息無效：只有房主能選關', () => {
+    const host = newHost();
+    const { host: hostEnd, client } = createChannelPair();
+    const guest = createClientSession(client);
+    host.addPeer(hostEnd);
+
+    client.send({ type: 'startLevel', level: 50 } as never);
+    client.send({ type: 'continue' } as never);
+
+    expect(host.startLevel).toBe(1);
+    expect(guest.startLevel).toBe(1);
+  });
+
+  test('玩家加入或離開大廳時，起始關卡設定不會被重設', () => {
+    const host = newHost();
+    host.setStartLevel(9);
+    const a = join(host);
+    const b = join(host);
+
+    a.leave();
+    join(host);
+
+    expect(host.startLevel).toBe(9);
+    expect(b.startLevel).toBe(9);
+  });
+
+  test('房主按開始後，全隊從所選關卡開始，彈珠池依當時的人數補滿，雙方狀態一致', () => {
+    const host = newHost();
+    const guest = join(host);
+    host.setStartLevel(6);
+
+    host.start();
+
+    expect(host.state!.level).toBe(6);
+    expect(host.state!.startLevel).toBe(6);
+    expect(host.state!.pool).toBe(20);
+    expect(guest.state!.level).toBe(6);
+    expect(guest.state!.startLevel).toBe(6);
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('開局之後再調整起始關卡無效', () => {
+    const host = newHost();
+    const guest = join(host);
+    host.start();
+
+    host.setStartLevel(30);
+
+    expect(host.startLevel).toBe(1);
+    expect(guest.startLevel).toBe(1);
+  });
+
+  test('單人也使用所選的起始關卡', () => {
+    const host = newHost();
+    host.setStartLevel(15);
+
+    host.start();
+
+    expect(host.state!.level).toBe(15);
+    expect(host.state!.monsters[0]!.boss).toBe(true);
+  });
+});
+
+describe('再來一局回到起始關卡', () => {
+  test('再來一局回到這一局的起始關卡，並換新種子', () => {
+    const host = createHostSession({ seed: 1 });
+    host.setStartLevel(5);
+    host.start();
+    const firstBricks = JSON.stringify(host.state!.bricks);
+    host.state!.level = 9;
+
+    host.restart();
+
+    expect(host.state!.level).toBe(5);
+    expect(host.state!.startLevel).toBe(5);
+    expect(host.state!.score).toBe(0);
+    expect(JSON.stringify(host.state!.bricks)).not.toBe(firstBricks);
+  });
+
+  test('起始關卡為 1 時，再來一局和以前一致', () => {
+    const host = newHost();
+    host.start();
+    host.state!.level = 4;
+
+    host.restart();
+
+    expect(host.state!.level).toBe(1);
+    expect(host.state!.startLevel).toBe(1);
+  });
+});
+
+describe('從本關接關', () => {
+  test('失敗後接關：從失敗的那一關開始，分數歸零，彈珠池補滿，場上彈珠清空，種子換新', () => {
+    const host = createHostSession({ seed: 1 });
+    host.setStartLevel(3);
+    host.start();
+    const brickIdsBefore = JSON.stringify(host.state!.bricks);
+    playUntilDefeated(host);
+    expect(host.state!.status).toBe('defeated');
+    host.state!.score = 1234;
+
+    host.continueRun();
+
+    expect(host.state!.status).toBe('playing');
+    expect(host.state!.level).toBe(3);
+    expect(host.state!.score).toBe(0);
+    expect(host.state!.pool).toBe(10);
+    expect(host.state!.marbles).toHaveLength(0);
+    expect(host.state!.bullets).toHaveLength(0);
+    expect(JSON.stringify(host.state!.bricks)).not.toBe(brickIdsBefore);
+  });
+
+  test('接關後這一局的起點仍然是原本的起始關卡', () => {
+    const host = newHost();
+    host.start();
+    playUntilDefeated(host);
+    host.state!.level = 7;
+
+    host.continueRun();
+
+    expect(host.state!.level).toBe(7);
+    expect(host.state!.startLevel).toBe(1);
+  });
+
+  test('還沒失敗時接關無效', () => {
+    const host = newHost();
+    host.start();
+    host.setLocalInput(rightClick(300));
+    host.advance(DT);
+    const before = JSON.stringify(host.state);
+
+    host.continueRun();
+
+    expect(JSON.stringify(host.state)).toBe(before);
+  });
+
+  test('玩家端收到接關後的狀態，包含關卡與這一局的起點，與房主一致', () => {
+    const host = newHost({ sendInterval: 1 });
+    const guest = join(host);
+    host.setStartLevel(4);
+    host.start();
+    playUntilDefeated(host, [guest]);
+    expect(guest.state!.status).toBe('defeated');
+
+    host.continueRun();
+
+    expect(guest.state!.status).toBe('playing');
+    expect(guest.state!.level).toBe(4);
+    expect(guest.state!.startLevel).toBe(4);
+    expect(guest.state).toEqual(JSON.parse(JSON.stringify(host.state)));
+  });
+
+  test('其他玩家離開後接關，仍然只用留在場上的玩家與原本的方位', () => {
+    const host = newHost();
+    const a = join(host);
+    join(host);
+    host.start();
+    a.leave();
+    playUntilDefeated(host);
+
+    host.continueRun();
+
+    expect(host.state!.players.map((p) => p.side)).toEqual(['bottom', 'left']);
+    expect(host.state!.pool).toBe(20);
+  });
+});
+
 describe('傳輸層與核心分離', () => {
   test('玩家端的型別只持有收到的狀態，沒有遊戲核心', () => {
     const host = newHost();

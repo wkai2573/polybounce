@@ -19,6 +19,8 @@ export interface Summary {
   score: number;
   pool: number;
   marbles: number;
+  /** 場上彈珠中最長的貫通剩餘秒數；只有接到貫通時才會變長。 */
+  pierce: number;
   /** 磚塊與怪物目前的血量，用編號對照。 */
   targets: Map<string, number>;
   /** 每位玩家的凍結與加寬剩餘秒數，用方位對照。 */
@@ -36,6 +38,7 @@ export function summarize(state: GameState): Summary {
     score: state.score,
     pool: state.pool,
     marbles: state.marbles.length,
+    pierce: Math.max(0, ...state.marbles.map((m) => m.pierce)),
     targets,
     frozen: new Map(state.players.map((p) => [p.side, p.frozen])),
     widen: new Map(state.players.map((p) => [p.side, p.widen])),
@@ -71,9 +74,10 @@ export function deriveEvents(prev: Summary | null, next: Summary): SfxEvent[] {
   if (sameLevel) {
     const supplied = next.pool > prev.pool;
     const widened = rose(prev.widen, next.widen);
-    // 多球：場上彈珠的增加量超過發射的顆數。
+    // 多球與環爆：場上彈珠的增加量超過發射的顆數。
     const multiplied = next.marbles - prev.marbles - launches >= 2;
-    if (supplied || widened || multiplied) events.push({ kind: 'pickup' });
+    const pierced = next.pierce > prev.pierce;
+    if (supplied || widened || multiplied || pierced) events.push({ kind: 'pickup' });
   }
 
   if (rose(prev.frozen, next.frozen)) events.push({ kind: 'freeze' });

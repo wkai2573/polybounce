@@ -105,6 +105,26 @@ describe('音效事件', () => {
     }
   });
 
+  test('接到貫通或環爆也算拾取，沿用同一個拾取音效', () => {
+    for (const kind of ['pierce', 'burst'] as const) {
+      const game = newGame();
+      stepEvents(game, [rightClick(400)]);
+      game.state.powerUps.push({ id: 1, batch: 1, kind, side: 'bottom', pos: { x: 400, y: 790 } });
+
+      const events = stepEvents(game, [at(400)]);
+
+      expect(events.map((e) => e.kind)).toContain('pickup');
+    }
+  });
+
+  test('貫通倒數變短不算拾取', () => {
+    const game = newGame();
+    stepEvents(game, [rightClick(400)]);
+    game.state.marbles[0]!.pierce = 5;
+
+    expect(collect(game, 0.5, at(400)).has('pickup')).toBe(false);
+  });
+
   test('道具飄出場地沒被接到，不會有拾取聲', () => {
     const game = newGame();
     game.state.powerUps.push({ id: 1, batch: 1, kind: 'supply', side: 'bottom', pos: { x: 100, y: 820 } });
@@ -117,6 +137,18 @@ describe('音效事件', () => {
     const game = newGame({ monsters: () => [{ ...monster }] });
 
     expect(collect(game, 8, at(400)).has('freeze')).toBe(true);
+  });
+
+  test('凍結中再被 BOSS 的子彈打到，凍結時間沒變，不會再有凍結音效', () => {
+    const game = newGame();
+    game.state.bullets.push({ id: 1, pos: { x: 400, y: 776 }, vel: { x: 0, y: 60 }, source: 'boss' });
+    expect(collect(game, 0.3, at(400)).has('freeze')).toBe(true);
+    expect(game.state.players[0]!.frozen).toBeGreaterThan(0);
+
+    game.state.bullets.push({ id: 2, pos: { x: 400, y: 780 }, vel: { x: 0, y: 60 }, source: 'boss' });
+
+    expect(collect(game, 0.15, at(400)).has('freeze')).toBe(false);
+    expect(game.state.bullets).toHaveLength(0);
   });
 
   test('失敗後再來一局，彈珠池補滿不會被當成補給', () => {

@@ -1,6 +1,7 @@
 import {
   AIM_MIN_ANGLE_DEG,
   ARENA_SIZE,
+  BOSS_BULLET_RADIUS,
   BULLET_RADIUS,
   FREEZE_DURATION,
   MARBLE_RADIUS,
@@ -26,8 +27,14 @@ const POWERUP_STYLE: Record<PowerUpKind, { color: string; label: string }> = {
   supply: { color: '#7dffb0', label: '+5' },
   widen: { color: '#4fd1ff', label: '↔' },
   multiball: { color: '#ffe14f', label: '×3' },
+  pierce: { color: '#ff9d4f', label: '貫' },
+  // 環爆很稀有，所以顏色獨特、標籤和光暈都比其他道具稍大。
+  burst: { color: '#ff4fe0', label: '環爆' },
 };
+const RARE_POWERUP_SCALE = 1.25;
 const BULLET_COLOR = '#ff4f4f';
+const BOSS_BULLET_COLOR = '#ffb347';
+const PIERCE_MARBLE_COLOR = '#ff9d4f';
 const FROZEN_COLOR = '#bfe9ff';
 
 const BRICK_COLORS = ['#ff5c7a', '#ffa14f', '#ffe14f', '#7dffb0'];
@@ -141,6 +148,8 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
   for (const p of state.players) {
     ctx.save();
     const frozen = p.frozen > 0;
+    // 解凍後的無敵期間，擋板半透明，提示 BOSS 的子彈會穿過去。
+    if (p.invincible > 0) ctx.globalAlpha = 0.55;
     glow(ctx, frozen ? FROZEN_COLOR : SIDE_COLORS[p.side], 16);
     const r = paddleRect(p);
     ctx.fillRect(r.x, r.y, r.w, r.h);
@@ -178,38 +187,72 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState, pointer: V
 
   for (const pu of state.powerUps) {
     const { color, label } = POWERUP_STYLE[pu.kind];
+    const scale = pu.kind === 'burst' ? RARE_POWERUP_SCALE : 1;
     ctx.save();
-    glow(ctx, color, 14);
+    glow(ctx, color, pu.kind === 'burst' ? 22 : 14);
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(pu.pos.x, pu.pos.y, POWERUP_RADIUS, 0, Math.PI * 2);
+    ctx.arc(pu.pos.x, pu.pos.y, POWERUP_RADIUS * scale, 0, Math.PI * 2);
     ctx.globalAlpha = 0.3;
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.stroke();
     ctx.shadowBlur = 0;
-    ctx.font = 'bold 12px system-ui, sans-serif';
+    ctx.font = `bold ${pu.kind === 'burst' ? 13 : 12}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, pu.pos.x, pu.pos.y + 1);
     ctx.restore();
   }
 
-  ctx.save();
-  glow(ctx, BULLET_COLOR, 12);
-  for (const b of state.bullets) {
-    ctx.beginPath();
-    ctx.arc(b.pos.x, b.pos.y, BULLET_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
+  // BOSS 的子彈比較小、顏色不同；同一種顏色一起畫，省去反覆切換光暈。
+  for (const source of ['monster', 'boss'] as const) {
+    ctx.save();
+    glow(ctx, source === 'boss' ? BOSS_BULLET_COLOR : BULLET_COLOR, source === 'boss' ? 8 : 12);
+    const radius = source === 'boss' ? BOSS_BULLET_RADIUS : BULLET_RADIUS;
+    for (const b of state.bullets) {
+      if (b.source !== source) continue;
+      ctx.beginPath();
+      ctx.arc(b.pos.x, b.pos.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
-  ctx.save();
-  glow(ctx, '#ffffff', 16);
-  for (const m of state.marbles) {
-    ctx.beginPath();
-    ctx.arc(m.pos.x, m.pos.y, MARBLE_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
+  // 一般彈珠是白色；貫通中的彈珠改色並帶更大的光暈，一眼分得出來。
+  for (const pierced of [false, true]) {
+    ctx.save();
+    glow(ctx, pierced ? PIERCE_MARBLE_COLOR : '#ffffff', pierced ? 26 : 16);
+    for (const m of state.marbles) {
+      if (m.pierce > 0 !== pierced) continue;
+      ctx.beginPath();
+      ctx.arc(m.pos.x, m.pos.y, MARBLE_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
+
+  drawCrosshair(ctx, pointer);
+}
+
+/**
+ * 準星：只畫本機玩家自己的。中空的圓環加上四個短刻度，中心留白，
+ * 所以不會遮住它所指的位置，也不會蓋住從擋板延伸過來的瞄準虛線。
+ */
+function drawCrosshair(ctx: CanvasRenderingContext2D, pointer: Vec2) {
+  const { x, y } = pointer;
+  ctx.save();
+  ctx.strokeStyle = '#f4fbff';
+  ctx.shadowColor = '#05060f';
+  ctx.shadowBlur = 3;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(x, y, 7, 0, Math.PI * 2);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    ctx.moveTo(x + dx * 11, y + dy * 11);
+    ctx.lineTo(x + dx * 16, y + dy * 16);
+  }
+  ctx.stroke();
   ctx.restore();
 }

@@ -550,18 +550,27 @@ describe('子彈', () => {
     expect([...directions].sort()).toEqual(['bottom', 'top']);
   });
 
-  test('子彈打到磚塊就消失，磚塊不受損，也不會凍結玩家', () => {
+  test('子彈穿過磚塊：磚塊不受損，子彈照常飛到擋板並凍結玩家', () => {
     const wall = Array.from({ length: 10 }, (_, c) => ({ ...brickAt(160 + c * 48, 640), id: c }));
     const game = createGame({ playerCount: 1, seed: 1, layout: () => wall, monsters: () => [monsterAt(400, 400)] });
 
-    for (let t = 0; t < 8.5; t += 1 / 60) {
-      game.step(1 / 60, [at(400)]);
-      expect(game.state.players[0]!.frozen).toBe(0);
-    }
+    runUntil(game, () => game.state.bullets.some((b) => b.pos.y > 660), at(400));
+    expect(game.state.bullets).toHaveLength(1);
 
+    runUntil(game, () => game.state.players[0]!.frozen > 0, at(400));
+
+    expect(game.state.players[0]!.frozen).toBe(1);
     expect(game.state.bullets).toHaveLength(0);
     expect(game.state.bricks).toHaveLength(10);
     expect(game.state.bricks.every((b) => b.hp === 1)).toBe(true);
+  });
+
+  test('一般怪物的子彈標示來源為一般怪物', () => {
+    const game = lone();
+
+    run(game, 5.1, at(400));
+
+    expect(game.state.bullets[0]!.source).toBe('monster');
   });
 
   test('子彈沒碰到擋板就飛出場地消失，不會凍結玩家', () => {
@@ -656,12 +665,12 @@ describe('凍結', () => {
 });
 
 describe('BOSS', () => {
-  test('BOSS 與一般怪物一樣每 5 秒發射一發子彈', () => {
+  test('BOSS 發射的子彈標示來源為 BOSS', () => {
     const game = createGame({ playerCount: 1, seed: 1, layout: cornerLayout, monsters: () => [monsterAt(400, 500, 3, true)] });
 
-    run(game, 5.1, at(400));
+    runUntil(game, () => game.state.bullets.length > 0, at(400));
 
-    expect(game.state.bullets).toHaveLength(1);
+    expect(game.state.bullets.every((b) => b.source === 'boss')).toBe(true);
   });
 
   test('BOSS 被彈珠撞到一樣扣一點血，血量歸零時移除並依最大血量得分', () => {

@@ -1,6 +1,6 @@
 import { deriveEvents, summarize, type Summary } from './audio/events.ts';
 import { createSfx } from './audio/sfx.ts';
-import { ARENA_SIZE, SIDE_ORDER } from './core/config.ts';
+import { ARENA_SIZE, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './core/config.ts';
 import type { GameState, PlayerInput, Side } from './core/types.ts';
 import type { ClientSession } from './net/client.ts';
 import { createHostSession, type HostSession } from './net/host.ts';
@@ -30,7 +30,11 @@ const startButton = $<HTMLButtonElement>('start');
 const leaveButton = $<HTMLButtonElement>('leave');
 const overlayTitle = $('overlay-title');
 const overlayText = $('overlay-text');
+const continueButton = $<HTMLButtonElement>('continue');
 const retry = $<HTMLButtonElement>('retry');
+const soloLevel = $<HTMLInputElement>('solo-level');
+const lobbyLevel = $<HTMLInputElement>('lobby-level');
+const lockHint = $('lock-hint');
 const back = $<HTMLButtonElement>('back');
 const muteButton = $<HTMLButtonElement>('mute');
 
@@ -71,20 +75,77 @@ let joinedCode = '';
 let bestLevel = readBest();
 let recordedDefeat = false;
 
+/** 本機玩家的虛擬指標，永遠在場地 0 到 ARENA_SIZE 之內；準星就畫在這裡，不會同步給其他玩家。 */
 const pointer = { x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 };
 let primary = false;
 let secondary = false;
 /** 點擊當下的指標位置，避免點擊與之後的移動被併進同一幀。 */
 const clickPointer = { x: pointer.x, y: pointer.y };
 
+/** 滑鼠目前是否鎖定在畫布上。鎖定時用相對位移累積指標，沒鎖定時用滑鼠在畫布上的絕對位置。 */
+let locked = false;
+/** 瀏覽器不支援或拒絕鎖定時，退回沒有鎖定的原本行為：不攔截點擊，暫停也不需要鎖定才能繼續。 */
+let lockUnavailable = !('requestPointerLock' in canvas);
+
+const clampArena = (v: number) => Math.min(ARENA_SIZE, Math.max(0, v));
+
 function toArena(e: MouseEvent) {
   const rect = canvas.getBoundingClientRect();
-  pointer.x = ((e.clientX - rect.left) / rect.width) * ARENA_SIZE;
-  pointer.y = ((e.clientY - rect.top) / rect.height) * ARENA_SIZE;
+  if (locked) {
+    pointer.x = clampArena(pointer.x + (e.movementX / rect.width) * ARENA_SIZE);
+    pointer.y = clampArena(pointer.y + (e.movementY / rect.height) * ARENA_SIZE);
+  } else {
+    pointer.x = clampArena(((e.clientX - rect.left) / rect.width) * ARENA_SIZE);
+    pointer.y = clampArena(((e.clientY - rect.top) / rect.height) * ARENA_SIZE);
+  }
 }
+
+const currentState = (): GameState | null => host?.state ?? guest?.state ?? null;
+const localSide = (): Side | null => (host ? host.localSide : (guest?.side ?? null));
+const paused = () => (host ? host.paused : (guest?.paused ?? false));
+/** 對局進行中：主選單、大廳與結算畫面都不需要鎖定滑鼠。 */
+const inPlay = () => currentScreen() === 'game' && currentState()?.status === 'playing';
+
+function onLockDenied() {
+  lockUnavailable = true;
+  // 鎖不上時，等著靠鎖定才能繼續的暫停就直接繼續。
+  if (host?.paused && inPlay()) host.setPaused(false);
+}
+
+/** 必須在使用者操作（點擊或按鍵）的處理函式裡呼叫，瀏覽器才會允許鎖定。 */
+function requestLock() {
+  if (locked || !('requestPointerLock' in canvas)) return;
+  try {
+    const result: unknown = canvas.requestPointerLock();
+    if (result instanceof Promise) result.catch(onLockDenied);
+  } catch {
+    onLockDenied();
+  }
+}
+
+function releaseLock() {
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+document.addEventListener('pointerlockerror', onLockDenied);
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  if (locked) {
+    lockUnavailable = false;
+    if (host?.paused && inPlay()) host.setPaused(false);
+  } else if (host && inPlay()) {
+    // 房主與單人解除鎖定（Esc 或失去焦點）視為暫停；其他玩家只是回到「點一下重新鎖定」。
+    host.setPaused(true);
+  }
+});
 
 canvas.addEventListener('mousemove', toArena);
 canvas.addEventListener('mousedown', (e) => {
+  if (inPlay() && !locked) {
+    requestLock();
+    // 重新鎖定的那一下點擊只用來鎖定，不當成瞄準或發射。
+    if (!lockUnavailable) return;
+  }
   toArena(e);
   clickPointer.x = pointer.x;
   clickPointer.y = pointer.y;
@@ -92,15 +153,29 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2) secondary = true;
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// 暫停畫面蓋在畫布上，點空白處也要能重新鎖定並繼續。
+overlay.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('button')) return;
+  if (inPlay() && !locked) requestLock();
+});
 
-const currentState = (): GameState | null => host?.state ?? guest?.state ?? null;
-const localSide = (): Side | null => (host ? host.localSide : (guest?.side ?? null));
-const paused = () => (host ? host.paused : (guest?.paused ?? false));
+function clampLevel(raw: string): number {
+  const value = Math.round(Number(raw));
+  return Number.isFinite(value) ? Math.min(MAX_START_LEVEL, Math.max(MIN_START_LEVEL, value)) : MIN_START_LEVEL;
+}
+
+for (const input of [soloLevel, lobbyLevel]) {
+  input.addEventListener('change', () => {
+    input.value = String(clampLevel(input.value));
+    if (input === lobbyLevel) host?.setStartLevel(Number(input.value));
+  });
+}
 
 function leaveToMenu(message = '') {
   host?.close();
   room?.close();
   closeGuest?.();
+  releaseLock();
   host = null;
   room = null;
   guest = null;
@@ -116,8 +191,11 @@ function setBusy(busy: boolean) {
 
 soloButton.addEventListener('click', () => {
   leaveToMenu();
+  soloLevel.value = String(clampLevel(soloLevel.value));
   host = createHostSession();
+  host.setStartLevel(Number(soloLevel.value));
   host.start();
+  requestLock();
 });
 
 createButton.addEventListener('click', async () => {
@@ -158,9 +236,19 @@ joinButton.addEventListener('click', async () => {
   }
 });
 
-startButton.addEventListener('click', () => host?.start());
+startButton.addEventListener('click', () => {
+  host?.start();
+  requestLock();
+});
 leaveButton.addEventListener('click', () => leaveToMenu());
-retry.addEventListener('click', () => host?.restart());
+retry.addEventListener('click', () => {
+  host?.restart();
+  requestLock();
+});
+continueButton.addEventListener('click', () => {
+  host?.continueRun();
+  requestLock();
+});
 back.addEventListener('click', () => leaveToMenu());
 window.addEventListener('beforeunload', () => leaveToMenu());
 
@@ -170,9 +258,13 @@ window.addEventListener('keydown', (e) => {
     renderMute();
   }
   // 只有房主（含單人）能暫停；其他玩家按了沒有作用。
-  if ((e.key === 'Escape' || e.key === 'p') && host && currentState()?.status === 'playing') {
-    host.setPaused(!host.paused);
-  }
+  // 有鎖定時 Esc 由瀏覽器接手解除鎖定（再由解除鎖定的事件暫停），所以 Esc 只在退回沒有鎖定的行為時才處理。
+  const pauseKey = e.key === 'p' || e.key === 'P' || (e.key === 'Escape' && lockUnavailable);
+  if (!pauseKey || !host || currentState()?.status !== 'playing') return;
+  if (locked) releaseLock();
+  else if (!host.paused) host.setPaused(true);
+  else if (lockUnavailable) host.setPaused(false);
+  else requestLock();
 });
 
 type Screen = 'menu' | 'lobby' | 'game';
@@ -201,9 +293,13 @@ function syncLobby() {
   const count = host ? host.playerCount : (guest?.lobby?.count ?? 0);
   const you = host ? 0 : (guest?.lobby?.you ?? -1);
   const code = room?.code ?? joinedCode;
-  const key = `${code}|${count}|${you}|${host ? 'h' : 'g'}`;
+  const startLevel = host ? host.startLevel : (guest?.startLevel ?? MIN_START_LEVEL);
+  const key = `${code}|${count}|${you}|${host ? 'h' : 'g'}|${startLevel}`;
   if (key === lobbyKey) return;
   lobbyKey = key;
+  // 房主正在輸入時，不要拿同步回來的值蓋掉他打到一半的數字。
+  if (document.activeElement !== lobbyLevel) lobbyLevel.value = String(startLevel);
+  lobbyLevel.disabled = !host;
   roomCodeEl.textContent = code;
   playersEl.replaceChildren(
     ...Array.from({ length: count }, (_, i) => {
@@ -239,15 +335,18 @@ function syncOverlay() {
   let title = '';
   let text = '';
   let canRetry = false;
+  let continueLabel = '';
 
   if (guest?.phase === 'hostLeft') {
     show = true;
     title = '房主已離線';
     text = '這一局已經結束';
   } else if (state?.status === 'defeated') {
+    // 只有從第 1 關開始的局才算最高紀錄；接關是同一局的延續，所以起點仍是第 1 關。
+    const counts = state.startLevel === 1;
     if (!recordedDefeat) {
       recordedDefeat = true;
-      if (state.level > bestLevel) {
+      if (counts && state.level > bestLevel) {
         bestLevel = state.level;
         writeBest(state.level);
       }
@@ -255,16 +354,25 @@ function syncOverlay() {
     show = true;
     title = '遊戲結束';
     text = `到達第 ${state.level} 關，分數 ${state.score}，最高紀錄第 ${bestLevel} 關`;
+    if (!counts) text += `\n這一局從第 ${state.startLevel} 關開始，不計入最高紀錄`;
     canRetry = host !== null;
+    continueLabel = `從第 ${state.level} 關接關`;
     if (!host) text += '\n等待房主開始下一局';
   } else if (paused()) {
     show = true;
-    title = host ? '暫停' : '房主已暫停';
-    text = host ? '按 Esc 繼續' : '請等待房主繼續';
+    if (host) {
+      title = '暫停';
+      text = lockUnavailable ? '按 Esc 繼續' : '點一下畫面繼續';
+    } else {
+      title = '房主已暫停';
+      text = lockUnavailable ? '請等待房主繼續' : '請等待房主繼續\n點一下畫面可重新鎖定滑鼠';
+    }
   }
   if (state?.status !== 'defeated') recordedDefeat = false;
+  // 有按鈕的畫面要能用系統游標點按，所以解除鎖定。
+  if (state?.status === 'defeated' || guest?.phase === 'hostLeft') releaseLock();
 
-  const key = `${show}|${title}|${text}|${canRetry}`;
+  const key = `${show}|${title}|${text}|${canRetry}|${continueLabel}`;
   if (key === overlayKey) return;
   overlayKey = key;
   overlay.classList.toggle('show', show);
@@ -272,6 +380,8 @@ function syncOverlay() {
   overlayText.textContent = text;
   overlayText.style.whiteSpace = 'pre-line';
   retry.hidden = !canRetry;
+  continueButton.hidden = !canRetry;
+  continueButton.textContent = continueLabel;
   back.hidden = !show;
 }
 
@@ -290,6 +400,7 @@ function syncScreens() {
   if (screen === 'lobby') syncLobby();
   if (screen === 'game') syncOverlay();
   else overlay.classList.remove('show');
+  lockHint.classList.toggle('show', inPlay() && !locked && !lockUnavailable && !overlay.classList.contains('show'));
 }
 
 function buildInput(): PlayerInput {

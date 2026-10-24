@@ -34,6 +34,34 @@
       canvas.menu {
         cursor: default;
       }
+      #lock-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 12%;
+        transform: translateX(-50%);
+        display: none;
+        padding: 8px 20px;
+        font-size: 20px;
+        border-radius: 8px;
+        background: rgba(5, 6, 15, 0.8);
+        box-shadow: 0 0 14px #4fd1ff;
+        pointer-events: none;
+      }
+      #lock-hint.show {
+        display: block;
+      }
+      .level-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: 20px;
+      }
+      input.level {
+        width: 3.5em;
+        padding: 6px 10px;
+        letter-spacing: 0;
+        text-transform: none;
+      }
       .screen {
         position: absolute;
         inset: 0;
@@ -156,6 +184,7 @@
 
         <div id="menu" class="screen show">
           <h1>Polybounce</h1>
+          <label class="level-row">起始關卡 <input id="solo-level" class="level" type="number" min="1" max="99" value="1" /></label>
           <button id="solo">單人遊戲</button>
           <button id="create">建立房間</button>
           <div class="row">
@@ -169,6 +198,7 @@
           <p id="lobby-title">房間碼</p>
           <h1 id="room-code"></h1>
           <ul id="players"></ul>
+          <label class="level-row" id="lobby-level-row">起始關卡 <input id="lobby-level" class="level" type="number" min="1" max="99" value="1" /></label>
           <p id="lobby-hint"></p>
           <div class="row">
             <button id="start">開始遊戲</button>
@@ -180,10 +210,12 @@
           <h1 id="overlay-title"></h1>
           <p id="overlay-text"></p>
           <div class="row">
+            <button id="continue" hidden>從本關接關</button>
             <button id="retry" hidden>再來一局</button>
             <button id="back" class="secondary" hidden>回到主選單</button>
           </div>
         </div>
+        <div id="lock-hint">點一下畫面鎖定滑鼠</div>
       </div>
     </div>
     <button id="mute" class="secondary" title="切換音效（M）"></button>

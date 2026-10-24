@@ -50,7 +50,7 @@ function createPaddleCollider(state: GameState): MarbleCollider {
 
 /**
  * 彈珠階段：移動場上彈珠，每一小段依序交給牆、擋板與傳入的其他碰撞者處理反彈，
- * 最後移除漏接的彈珠。新的實體只需要提供自己的碰撞者。
+ * 遞減貫通倒數，最後移除漏接的彈珠。新的實體只需要提供自己的碰撞者。
  */
 export function createMarbleStage(state: GameState, extraColliders: MarbleCollider[]) {
   const colliders = [createWallCollider(state), createPaddleCollider(state), ...extraColliders];
@@ -66,6 +66,7 @@ export function createMarbleStage(state: GameState, extraColliders: MarbleCollid
       m.pos.y += m.vel.y * h;
       for (const collide of colliders) collide(m, prev);
     }
+    m.pierce = Math.max(0, m.pierce - dt);
   }
 
   /** 彈珠整顆越過有玩家的那一邊，就是漏接。 */

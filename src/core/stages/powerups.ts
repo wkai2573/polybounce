@@ -1,20 +1,23 @@
 import {
   ARENA_SIZE,
+  BURST_COUNT,
   MARBLE_FIELD_CAP,
   MULTIBALL_SPREAD_DEG,
   PADDLE_THICKNESS,
+  PIERCE_DURATION,
   POOL_CAP_PER_PLAYER,
   POWERUP_DROP_CHANCE,
   POWERUP_KINDS,
   POWERUP_RADIUS,
   POWERUP_SPEED,
+  POWERUP_WEIGHTS,
   SUPPLY_AMOUNT,
   WIDEN_DURATION,
 } from '../config.ts';
 import { along, depth, FRAMES } from '../geometry.ts';
 import { paddleWidth } from '../paddle.ts';
 import { createRng } from '../rng.ts';
-import type { GameOptions, GameState, Marble, PlayerState, PowerUp, Vec2 } from '../types.ts';
+import type { GameOptions, GameState, Marble, PlayerState, PowerUp, PowerUpKind, Vec2 } from '../types.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -33,8 +36,19 @@ export function createDropper(state: GameState, seed: number, options: GameOptio
   let nextId = 0;
   let nextBatch = 0;
 
+  /** 依權重抽一種道具；沒有可抽的種類時回傳 undefined。 */
+  function pickKind(): PowerUpKind | undefined {
+    const total = kinds.reduce((sum, k) => sum + POWERUP_WEIGHTS[k], 0);
+    let roll = rng() * total;
+    for (const kind of kinds) {
+      roll -= POWERUP_WEIGHTS[kind];
+      if (roll < 0) return kind;
+    }
+    return kinds[kinds.length - 1];
+  }
+
   function drop(pos: Vec2) {
-    const kind = kinds[Math.floor(rng() * kinds.length)];
+    const kind = pickKind();
     if (!kind) return;
     const batch = nextBatch++;
     for (const player of state.players) {
@@ -57,15 +71,27 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
     return { x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a) };
   }
 
-  /** 場上每顆彈珠各分裂出兩顆，速度大小不變；超過場上彈珠上限的就不產生。 */
-  function split() {
+  /**
+   * 場上每顆彈珠各自原地分裂出新的彈珠，速度大小不變，並繼承貫通剩餘秒數；
+   * 超過場上彈珠上限的就不產生。
+   */
+  function splitInto(degrees: number[]) {
     for (const m of state.marbles.slice()) {
-      for (const deg of [-MULTIBALL_SPREAD_DEG, MULTIBALL_SPREAD_DEG]) {
+      for (const deg of degrees) {
         if (state.marbles.length >= MARBLE_FIELD_CAP) return;
-        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg) };
+        const copy: Marble = { id: nextMarbleId(), pos: { x: m.pos.x, y: m.pos.y }, vel: rotate(m.vel, deg), pierce: m.pierce };
         state.marbles.push(copy);
       }
     }
+  }
+
+  const split = () => splitInto([-MULTIBALL_SPREAD_DEG, MULTIBALL_SPREAD_DEG]);
+
+  /** 原本那顆保留，另外新增的方向均勻分佈，所以一共 BURST_COUNT 顆、彼此間隔 360 / BURST_COUNT 度。 */
+  const burst = () => splitInto(Array.from({ length: BURST_COUNT - 1 }, (_, i) => ((i + 1) * 360) / BURST_COUNT));
+
+  function pierce() {
+    for (const m of state.marbles) m.pierce = PIERCE_DURATION;
   }
 
   function applyTo(player: PlayerState, powerUp: PowerUp) {
@@ -83,6 +109,12 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
       }
       case 'multiball':
         split();
+        break;
+      case 'pierce':
+        pierce();
+        break;
+      case 'burst':
+        burst();
         break;
     }
   }
@@ -107,7 +139,7 @@ export function createPowerUpStage(state: GameState, nextMarbleId: () => number)
       if (player && touches(player, p)) {
         gone.add(p.id);
         applyTo(player, p);
-        // 補給與多球是全隊共用的效果，同一批只有第一個被接到的生效；加寬各自接各自的。
+        // 補給、多球、貫通與環爆是全隊共用的效果，同一批只有第一個被接到的生效；加寬各自接各自的。
         if (p.kind !== 'widen') {
           for (const other of state.powerUps) if (other.batch === p.batch) gone.add(other.id);
         }

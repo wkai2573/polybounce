@@ -30,6 +30,7 @@ export function createInputStage(state: GameState, nextMarbleId: () => number) {
       id: nextMarbleId(),
       pos: launchPoint(player),
       vel: { x: dir.x * speed, y: dir.y * speed },
+      pierce: 0,
     });
   }
 

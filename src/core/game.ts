@@ -1,4 +1,4 @@
-import { ARENA_SIZE, MARBLES_PER_PLAYER, SIDE_ORDER } from './config.ts';
+import { ARENA_SIZE, MARBLES_PER_PLAYER, MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from './config.ts';
 import { generateLevel, generateMonsters } from './level.ts';
 import { createRng } from './rng.ts';
 import { createBrickCollider } from './stages/bricks.ts';
@@ -14,14 +14,16 @@ export function createGame(options: GameOptions): Game {
   const layout = options.layout ?? ((level: number) => generateLevel(level, options.seed));
   const monsters = options.monsters ?? ((level: number) => generateMonsters(level, options.seed));
   const sides = options.sides ?? SIDE_ORDER.slice(0, options.playerCount);
+  const startLevel = Math.min(MAX_START_LEVEL, Math.max(MIN_START_LEVEL, Math.floor(options.startLevel ?? MIN_START_LEVEL)));
   const state: GameState = {
     status: 'playing',
-    level: 1,
+    level: startLevel,
+    startLevel: options.runStartLevel ?? startLevel,
     score: 0,
     pool: MARBLES_PER_PLAYER * sides.length,
     marbles: [],
-    bricks: layout(1),
-    monsters: monsters(1),
+    bricks: layout(startLevel),
+    monsters: monsters(startLevel),
     bullets: [],
     powerUps: [],
     players: sides.map((side) => ({
@@ -30,6 +32,7 @@ export function createGame(options: GameOptions): Game {
       aiming: false,
       frozen: 0,
       widen: 0,
+      invincible: 0,
     })),
   };
 

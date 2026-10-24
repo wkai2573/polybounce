@@ -5,7 +5,7 @@ import {
   MONSTER_SCORE_PER_HP,
   MONSTER_SPEED,
 } from '../config.ts';
-import type { GameState, Monster, Vec2 } from '../types.ts';
+import type { GameState, Marble, Monster, Vec2 } from '../types.ts';
 import type { MarbleCollider } from './marbles.ts';
 import type { Dropper } from './powerups.ts';
 
@@ -41,8 +41,8 @@ export function createMonsterStage(state: GameState, rng: () => number) {
 }
 
 /**
- * 怪物碰撞：彈珠沿圓心連線的法線反彈，怪物扣一點血，血量歸零時移除並得分。
- * 血量每降到一個門檻以下就掉落一次道具，每個門檻只掉一次。
+ * 怪物碰撞：一般彈珠沿圓心連線的法線反彈，怪物扣一點血；貫通中的彈珠穿過去，每次進入扣一點血，
+ * 離開後再進入才會再扣。血量歸零時移除並得分。血量每降到一個門檻以下就掉落一次道具，每個門檻只掉一次。
  */
 export function createMonsterCollider(state: GameState, dropper: Dropper): MarbleCollider {
   // 已經掉落過的門檻只是怪物的過程，不屬於遊戲狀態，所以不放進快照。
@@ -57,12 +57,37 @@ export function createMonsterCollider(state: GameState, dropper: Dropper): Marbl
     dropper.drop(monster.pos);
   }
 
-  return (m) => {
+  // 貫通的彈珠目前正與哪些怪物重疊，同樣只是過程，不放進快照。
+  const overlapping = new WeakMap<Marble, Set<Monster>>();
+
+  function damage(monster: Monster) {
+    monster.hp -= 1;
+    dropForThresholds(monster);
+    if (monster.hp <= 0) {
+      state.score += monster.maxHp * MONSTER_SCORE_PER_HP;
+      state.monsters = state.monsters.filter((x) => x !== monster);
+    }
+  }
+
+  const reachOf = (monster: Monster) => MARBLE_RADIUS + monster.radius;
+
+  function pierceThrough(m: Marble) {
+    const before = overlapping.get(m);
+    const now = new Set<Monster>();
+    for (const monster of state.monsters.slice()) {
+      if (Math.hypot(m.pos.x - monster.pos.x, m.pos.y - monster.pos.y) >= reachOf(monster)) continue;
+      now.add(monster);
+      if (!before?.has(monster)) damage(monster);
+    }
+    overlapping.set(m, now);
+  }
+
+  function bounce(m: Marble) {
     for (const monster of state.monsters) {
       const dx = m.pos.x - monster.pos.x;
       const dy = m.pos.y - monster.pos.y;
       const dist = Math.hypot(dx, dy);
-      const reach = MARBLE_RADIUS + monster.radius;
+      const reach = reachOf(monster);
       if (dist >= reach || dist === 0) continue;
 
       const nx = dx / dist;
@@ -74,13 +99,17 @@ export function createMonsterCollider(state: GameState, dropper: Dropper): Marbl
       m.pos.x = monster.pos.x + nx * reach;
       m.pos.y = monster.pos.y + ny * reach;
 
-      monster.hp -= 1;
-      dropForThresholds(monster);
-      if (monster.hp <= 0) {
-        state.score += monster.maxHp * MONSTER_SCORE_PER_HP;
-        state.monsters = state.monsters.filter((x) => x !== monster);
-      }
+      damage(monster);
       return;
+    }
+  }
+
+  return (m) => {
+    if (m.pierce > 0) {
+      pierceThrough(m);
+    } else {
+      overlapping.delete(m);
+      bounce(m);
     }
   };
 }

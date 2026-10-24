@@ -117,7 +117,7 @@ describe('道具掉落', () => {
     expect(batches.size).toBe(2);
   });
 
-  test('預設掉落機率約 15%', () => {
+  test('預設掉落機率約 25%', () => {
     let dropped = 0;
     const games = 300;
     for (let seed = 1; seed <= games; seed++) {
@@ -126,8 +126,8 @@ describe('道具掉落', () => {
       if (game.state.powerUps.length > 0) dropped++;
     }
 
-    expect(dropped / games).toBeGreaterThan(0.08);
-    expect(dropped / games).toBeLessThan(0.25);
+    expect(dropped / games).toBeGreaterThan(0.18);
+    expect(dropped / games).toBeLessThan(0.34);
   });
 
   test('沒有被接到的道具飄出場地後消失，不影響彈珠池', () => {

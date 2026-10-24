@@ -1,13 +1,46 @@
 import { MARBLE_RADIUS, SCORE_PER_HP } from '../config.ts';
-import type { GameState } from '../types.ts';
+import type { Brick, GameState, Marble } from '../types.ts';
 import type { MarbleCollider } from './marbles.ts';
 import type { Dropper } from './powerups.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** 磚塊碰撞：每一小段最多撞一塊磚，沿著穿透比較淺的那個軸反彈，並在磚塊碎裂時得分與機率掉落道具。 */
+const distanceTo = (m: Marble, brick: Brick) => {
+  const cx = clamp(m.pos.x, brick.x, brick.x + brick.w);
+  const cy = clamp(m.pos.y, brick.y, brick.y + brick.h);
+  return Math.hypot(m.pos.x - cx, m.pos.y - cy);
+};
+
+/**
+ * 磚塊碰撞：一般彈珠每一小段最多撞一塊磚，沿著穿透比較淺的那個軸反彈；
+ * 貫通中的彈珠穿過磚塊不反彈，每進入一塊磚扣一點血。磚塊碎裂時得分與機率掉落道具。
+ */
 export function createBrickCollider(state: GameState, dropper: Dropper): MarbleCollider {
-  return (m) => {
+  // 貫通的彈珠目前正與哪些磚塊重疊，只是碰撞的過程，不屬於遊戲狀態，所以不放進快照。
+  const overlapping = new WeakMap<Marble, Set<Brick>>();
+
+  function damage(brick: Brick) {
+    brick.hp -= 1;
+    if (brick.hp <= 0) {
+      state.score += brick.maxHp * SCORE_PER_HP;
+      state.bricks = state.bricks.filter((b) => b !== brick);
+      dropper.maybeDrop({ x: brick.x + brick.w / 2, y: brick.y + brick.h / 2 });
+    }
+  }
+
+  function pierceThrough(m: Marble) {
+    const before = overlapping.get(m);
+    const now = new Set<Brick>();
+    // 磚塊碎裂會改動 state.bricks，所以先複製一份再走訪。
+    for (const brick of state.bricks.slice()) {
+      if (distanceTo(m, brick) >= MARBLE_RADIUS) continue;
+      now.add(brick);
+      if (!before?.has(brick)) damage(brick);
+    }
+    overlapping.set(m, now);
+  }
+
+  function bounce(m: Marble) {
     for (const brick of state.bricks) {
       const cx = clamp(m.pos.x, brick.x, brick.x + brick.w);
       const cy = clamp(m.pos.y, brick.y, brick.y + brick.h);
@@ -31,13 +64,17 @@ export function createBrickCollider(state: GameState, dropper: Dropper): MarbleC
         m.pos.y = cy + ny * MARBLE_RADIUS;
       }
 
-      brick.hp -= 1;
-      if (brick.hp <= 0) {
-        state.score += brick.maxHp * SCORE_PER_HP;
-        state.bricks = state.bricks.filter((b) => b !== brick);
-        dropper.maybeDrop({ x: brick.x + brick.w / 2, y: brick.y + brick.h / 2 });
-      }
+      damage(brick);
       return;
+    }
+  }
+
+  return (m) => {
+    if (m.pierce > 0) {
+      pierceThrough(m);
+    } else {
+      overlapping.delete(m);
+      bounce(m);
     }
   };
 }

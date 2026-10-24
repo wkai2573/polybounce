@@ -1,3 +1,4 @@
+import { MIN_START_LEVEL } from '../core/config.ts';
 import type { GameState, PlayerInput, Side } from '../core/types.ts';
 import type { ClientChannel, RejectReason } from './protocol.ts';
 
@@ -9,6 +10,8 @@ export type ClientPhase = 'connecting' | 'lobby' | 'playing' | 'rejected' | 'hos
 export interface ClientSession {
   readonly phase: ClientPhase;
   readonly lobby: { you: number; count: number } | null;
+  /** 房主在大廳選的起始關卡；玩家只能看，不能改。 */
+  readonly startLevel: number;
   /** 開局後這位玩家守的方位。 */
   readonly side: Side | null;
   /** 最近一次收到的遊戲狀態。 */
@@ -25,6 +28,7 @@ export interface ClientSession {
 export function createClientSession(channel: ClientChannel): ClientSession {
   let phase: ClientPhase = 'connecting';
   let lobby: ClientSession['lobby'] = null;
+  let startLevel: number = MIN_START_LEVEL;
   let side: Side | null = null;
   let state: GameState | null = null;
   let paused = false;
@@ -38,6 +42,7 @@ export function createClientSession(channel: ClientChannel): ClientSession {
       case 'lobby':
         phase = 'lobby';
         lobby = { you: message.you, count: message.count };
+        startLevel = message.startLevel;
         break;
       case 'rejected':
         phase = 'rejected';
@@ -70,6 +75,9 @@ export function createClientSession(channel: ClientChannel): ClientSession {
     },
     get lobby() {
       return lobby;
+    },
+    get startLevel() {
+      return startLevel;
     },
     get side() {
       return side;

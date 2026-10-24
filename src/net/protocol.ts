@@ -3,14 +3,14 @@ import type { GameState, PlayerInput, Side } from '../core/types.ts';
 /** 房間最多 4 人。 */
 export const MAX_PLAYERS = 4;
 
-/** 其他玩家只會傳送輸入；暫停與再來一局只有房主能做，所以沒有對應的訊息。 */
+/** 其他玩家只會傳送輸入；暫停、再來一局、接關與選關只有房主能做，所以沒有對應的訊息。 */
 export type ClientMessage = { type: 'input'; input: PlayerInput };
 
 export type RejectReason = 'full' | 'started';
 
 export type HostMessage =
-  /** 大廳狀態：you 是收到這則訊息的人在加入順序中的編號（從 0 開始），count 是目前總人數。 */
-  | { type: 'lobby'; you: number; count: number }
+  /** 大廳狀態：you 是收到這則訊息的人在加入順序中的編號（從 0 開始），count 是目前總人數，startLevel 是房主選的起始關卡。 */
+  | { type: 'lobby'; you: number; count: number; startLevel: number }
   | { type: 'rejected'; reason: RejectReason }
   /** 開局：告知這位玩家守哪個方位。 */
   | { type: 'start'; you: Side }

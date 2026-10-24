@@ -1,4 +1,4 @@
-import { SIDE_ORDER } from '../core/config.ts';
+import { MAX_START_LEVEL, MIN_START_LEVEL, SIDE_ORDER } from '../core/config.ts';
 import { createGame } from '../core/game.ts';
 import type { Game, GameOptions, GameState, PlayerInput, Side } from '../core/types.ts';
 import { MAX_PLAYERS, type ClientMessage, type HostChannel } from './protocol.ts';
@@ -21,17 +21,23 @@ export interface HostSession {
   readonly playerCount: number;
   /** 房主自己的方位，永遠是下方。 */
   readonly localSide: Side;
+  /** 大廳裡選的起始關卡，預設第 1 關；開局之後不再改變。 */
+  readonly startLevel: number;
   /** 其他玩家連上來。大廳以外或人數已滿時，會回覆拒絕並關閉連線。 */
   addPeer(channel: HostChannel): void;
   /** 大廳人數或場上玩家改變時呼叫。 */
   onChange(handler: () => void): void;
+  /** 房主在大廳調整起始關卡（限制在 1 到 99），並通知所有玩家。開局之後無效。 */
+  setStartLevel(level: number): void;
   start(): void;
   setLocalInput(input: PlayerInput): void;
   /** 推進遊戲 dt 秒，並依送出間隔把狀態送給其他玩家。 */
   advance(dt: number): void;
   setPaused(paused: boolean): void;
-  /** 用目前還在的玩家與方位，從第 1 關重開。 */
+  /** 再來一局：用目前還在的玩家與方位，回到這一局的起始關卡重開。 */
   restart(): void;
+  /** 從本關接關：失敗之後，以失敗的那一關為起點重開，分數歸零。這一局的起點不變。沒有失敗時無效。 */
+  continueRun(): void;
   close(): void;
 }
 
@@ -62,6 +68,7 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
   const members: Member[] = [{ channel: null, side: 'bottom', input: neutral() }];
   const changeHandlers: Array<() => void> = [];
   let phase: 'lobby' | 'playing' = 'lobby';
+  let startLevel: number = MIN_START_LEVEL;
   let game: Game | null = null;
   let paused = false;
   let sinceSend = 0;
@@ -74,7 +81,7 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
   const emitChange = () => changeHandlers.forEach((h) => h());
 
   function broadcastLobby() {
-    members.forEach((m, index) => m.channel?.send({ type: 'lobby', you: index, count: members.length }));
+    members.forEach((m, index) => m.channel?.send({ type: 'lobby', you: index, count: members.length, startLevel }));
   }
 
   function broadcastState() {
@@ -124,7 +131,8 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
     emitChange();
   }
 
-  function newGame() {
+  /** level 是開始遊玩的關卡，runStart 是這一局的起點；接關時兩者不同。 */
+  function newGame(level: number, runStart: number) {
     // 第一局可以由呼叫端指定種子，之後每次重開都換新的。
     const seed = game === null ? (options.seed ?? randomSeed()) : randomSeed();
     game = createGame({
@@ -132,6 +140,8 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
       playerCount: members.length as GameOptions['playerCount'],
       sides: members.map((m) => m.side),
       seed,
+      startLevel: level,
+      runStartLevel: runStart,
     });
     paused = false;
   }
@@ -150,6 +160,9 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
       return members.length;
     },
     localSide: 'bottom',
+    get startLevel() {
+      return startLevel;
+    },
 
     addPeer(channel) {
       if (members.length >= MAX_PLAYERS || phase !== 'lobby') {
@@ -170,10 +183,19 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
       changeHandlers.push(handler);
     },
 
+    setStartLevel(level) {
+      if (phase !== 'lobby' || !Number.isFinite(level)) return;
+      const next = Math.min(MAX_START_LEVEL, Math.max(MIN_START_LEVEL, Math.round(level)));
+      if (next === startLevel) return;
+      startLevel = next;
+      broadcastLobby();
+      emitChange();
+    },
+
     start() {
       if (phase !== 'lobby') return;
       phase = 'playing';
-      newGame();
+      newGame(startLevel, startLevel);
       for (const m of members) m.channel?.send({ type: 'start', you: m.side });
       broadcastState();
       emitChange();
@@ -202,8 +224,15 @@ export function createHostSession(options: HostSessionOptions = {}): HostSession
     },
 
     restart() {
-      if (phase !== 'playing') return;
-      newGame();
+      if (phase !== 'playing' || !game) return;
+      const origin = game.state.startLevel;
+      newGame(origin, origin);
+      broadcastState();
+    },
+
+    continueRun() {
+      if (phase !== 'playing' || !game || game.state.status !== 'defeated') return;
+      newGame(game.state.level, game.state.startLevel);
       broadcastState();
     },
 
